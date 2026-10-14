@@ -92,6 +92,13 @@ void main() async {
   try {
     await NotificationService.instance.initialize(
       onDidReceiveNotificationResponse: (response) {
+        if (response.actionId == NotificationService.snoozeActionId) {
+          NotificationService.log(
+            'main: onDidReceiveNotificationResponse intercepted snooze action',
+          );
+          NotificationService.handleSnoozeActionPayload(response.payload);
+          return;
+        }
         if (NotificationService.instance.isAppReadyForNavigation) {
           handleNotificationPayload(response.payload);
         } else {

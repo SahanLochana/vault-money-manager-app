@@ -24,12 +24,14 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   double _dailyBudget = 500.0;
+  int _snoozeDurationMinutes = 60;
   String _appVersion = '1.0.0';
 
   @override
   void initState() {
     super.initState();
     _loadDailyBudget();
+    _loadSnoozeDuration();
     _loadAppVersion();
   }
 
@@ -58,6 +60,100 @@ class _SettingsPageState extends State<SettingsPage> {
     if (mounted) {
       setState(() => _dailyBudget = newBudget);
     }
+  }
+
+  Future<void> _loadSnoozeDuration() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedDuration = prefs.getInt('snooze_duration_minutes') ?? 60;
+    if (mounted) {
+      setState(() => _snoozeDurationMinutes = savedDuration);
+    }
+  }
+
+  Future<void> _updateSnoozeDuration(int minutes) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('snooze_duration_minutes', minutes);
+    if (mounted) {
+      setState(() => _snoozeDurationMinutes = minutes);
+    }
+  }
+
+  String _formatSnoozeDuration(int minutes) {
+    if (minutes < 60) {
+      return "$minutes minutes";
+    } else if (minutes == 60) {
+      return "1 hour";
+    } else {
+      final hours = minutes ~/ 60;
+      final remaining = minutes % 60;
+      if (remaining == 0) {
+        return "$hours hours";
+      }
+      return "$hours hr $remaining min";
+    }
+  }
+
+  void _showEditSnoozeDurationDialog() {
+    int selected = _snoozeDurationMinutes;
+    const options = [15, 30, 60, 120];
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AppDialogShell(
+          title: "Snooze Duration",
+          confirmLabel: "Save",
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: options.map((minutes) {
+              final isSelected = minutes == selected;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? AppColors.primary.withValues(alpha: 0.12)
+                      : AppColors.surfaceLight,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isSelected
+                        ? AppColors.primary
+                        : AppColors.surfaceBorder.withValues(alpha: 0.5),
+                  ),
+                ),
+                child: ListTile(
+                  dense: true,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                  title: Text(
+                    _formatSnoozeDuration(minutes),
+                    style: TextStyle(
+                      color: isSelected
+                          ? AppColors.primary
+                          : AppColors.textPrimary,
+                      fontWeight:
+                          isSelected ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                  trailing: isSelected
+                      ? const Icon(Icons.check_circle_rounded,
+                          color: AppColors.primary, size: 20)
+                      : null,
+                  onTap: () {
+                    setDialogState(() {
+                      selected = minutes;
+                    });
+                  },
+                ),
+              );
+            }).toList(),
+          ),
+          onConfirm: () {
+            _updateSnoozeDuration(selected);
+            Navigator.pop(context);
+          },
+        ),
+      ),
+    );
   }
 
   void _showEditDailyBudgetDialog() {
@@ -170,6 +266,13 @@ class _SettingsPageState extends State<SettingsPage> {
             title: "Daily Budget Target",
             subtitle: "Rs ${_dailyBudget.toStringAsFixed(0)} / day",
             onTap: _showEditDailyBudgetDialog,
+          ),
+          _buildSettingTile(
+            icon: Icons.snooze_rounded,
+            iconColor: AppColors.primary,
+            title: "Snooze Duration",
+            subtitle: _formatSnoozeDuration(_snoozeDurationMinutes),
+            onTap: _showEditSnoozeDurationDialog,
           ),
 
           const SizedBox(height: 20),

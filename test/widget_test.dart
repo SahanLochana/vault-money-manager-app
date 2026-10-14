@@ -1,4 +1,6 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_management_app/presentation/screens/settings_page.dart';
 import 'package:money_management_app/domain/models/category.dart';
 import 'package:money_management_app/domain/models/expense.dart';
 import 'package:money_management_app/domain/models/reminder_slot.dart';
@@ -142,5 +144,24 @@ void main() {
 
     expect(find.text("VAULT"), findsOneWidget);
     expect(find.text("SMART MONEY MANAGER"), findsOneWidget);
+  });
+
+  testWidgets('SettingsPage displays Snooze Duration setting tile and opens dialog', (WidgetTester tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: SettingsPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text("Snooze Duration"), findsOneWidget);
+    expect(find.text("1 hour"), findsOneWidget);
+
+    await tester.tap(find.text("Snooze Duration"));
+    await tester.pumpAndSettle();
+
+    expect(find.text("15 minutes"), findsOneWidget);
+    expect(find.text("30 minutes"), findsOneWidget);
+    expect(find.text("2 hours"), findsOneWidget);
   });
 }
