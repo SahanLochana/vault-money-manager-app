@@ -385,7 +385,7 @@ class _ManageRemindersPageState extends State<ManageRemindersPage>
             ),
           ),
           onConfirm: () {
-            final amt = double.tryParse(amountCtrl.text.trim()) ?? 0.0;
+            final amt = double.tryParse(amountCtrl.text.trim());
             final timeStr =
                 '${selectedTime.hour.toString().padLeft(2, '0')}:${selectedTime.minute.toString().padLeft(2, '0')}';
             Navigator.pop(
@@ -393,9 +393,8 @@ class _ManageRemindersPageState extends State<ManageRemindersPage>
               ReminderSlot(
                 categoryId: selectedCatId,
                 time: timeStr,
-                defaultAmountCents: (amt * 100).toInt(),
+                defaultAmountCents: (amt != null && amt > 0) ? (amt * 100).toInt() : null,
                 isActive: true,
-                isSystem: false,
               ),
             );
           },

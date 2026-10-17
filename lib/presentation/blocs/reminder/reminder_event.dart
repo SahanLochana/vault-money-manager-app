@@ -33,3 +33,8 @@ class RescheduleAllRemindersEvent extends ReminderEvent {
   const RescheduleAllRemindersEvent();
 }
 
+class RemoveCategoryRemindersEvent extends ReminderEvent {
+  final int categoryId;
+  const RemoveCategoryRemindersEvent(this.categoryId);
+}
+

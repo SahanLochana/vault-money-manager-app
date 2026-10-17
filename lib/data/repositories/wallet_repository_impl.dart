@@ -10,13 +10,23 @@ class WalletRepositoryImpl implements WalletRepository {
   WalletRepositoryImpl({required this.localDatasource});
 
   @override
-  Future<List<Wallet>> getAllWallets() async {
-    return await localDatasource.getAllWallets();
+  Future<List<Wallet>> getAllWallets({bool includeArchived = false}) async {
+    return await localDatasource.getAllWallets(includeArchived: includeArchived);
   }
 
   @override
   Future<Wallet?> getWalletById(int id) async {
     return await localDatasource.getWalletById(id);
+  }
+
+  @override
+  Future<int> addWallet(Wallet wallet) async {
+    return await localDatasource.insertWallet(wallet);
+  }
+
+  @override
+  Future<void> updateWallet(Wallet wallet) async {
+    await localDatasource.updateWallet(wallet);
   }
 
   @override
@@ -39,6 +49,11 @@ class WalletRepositoryImpl implements WalletRepository {
   @override
   Future<void> deleteFund(int id) async {
     await localDatasource.deleteWalletFund(id);
+  }
+
+  @override
+  Future<void> restoreFund(int id) async {
+    await localDatasource.restoreWalletFund(id);
   }
 
   @override

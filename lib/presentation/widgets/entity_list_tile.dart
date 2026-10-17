@@ -5,6 +5,7 @@ import 'package:money_management_app/presentation/widgets/emoji_avatar.dart';
 class EntityListTile extends StatelessWidget {
   final String emoji;
   final String name;
+  final String? subtitle;
   final Widget trailing;
   final VoidCallback? onTap;
 
@@ -12,6 +13,7 @@ class EntityListTile extends StatelessWidget {
     super.key,
     required this.emoji,
     required this.name,
+    this.subtitle,
     required this.trailing,
     this.onTap,
   });
@@ -33,13 +35,30 @@ class EntityListTile extends StatelessWidget {
           EmojiAvatar(emoji: emoji),
           const SizedBox(width: 14),
           Expanded(
-            child: Text(
-              name,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  name,
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle!,
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
           trailing,

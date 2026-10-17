@@ -16,10 +16,10 @@ class CategoryLoaded extends CategoryState {
   final List<Category> categories;
   const CategoryLoaded(this.categories);
 
-  List<Category> get systemCategories =>
-      categories.where((c) => c.isSystem).toList();
-  List<Category> get customCategories =>
-      categories.where((c) => !c.isSystem).toList();
+  List<Category> get expenseCategories =>
+      categories.where((c) => c.kind == CategoryKind.expense).toList();
+  List<Category> get incomeCategories =>
+      categories.where((c) => c.kind == CategoryKind.income).toList();
 }
 
 class CategoryError extends CategoryState {

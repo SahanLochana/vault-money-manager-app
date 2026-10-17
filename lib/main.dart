@@ -2,17 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:money_management_app/data/database/app_database.dart';
+import 'package:money_management_app/data/datasources/app_settings_local_datasource.dart';
 import 'package:money_management_app/data/datasources/category_local_datasource.dart';
 import 'package:money_management_app/data/datasources/expense_local_datasource.dart';
 import 'package:money_management_app/data/datasources/reminder_local_datasource.dart';
+import 'package:money_management_app/data/datasources/transaction_local_datasource.dart';
 import 'package:money_management_app/data/datasources/wallet_local_datasource.dart';
 import 'package:money_management_app/data/repositories/category_repository_impl.dart';
 import 'package:money_management_app/data/repositories/expense_repository_impl.dart';
 import 'package:money_management_app/data/repositories/reminder_repository_impl.dart';
+import 'package:money_management_app/data/repositories/settings_repository_impl.dart';
+import 'package:money_management_app/data/repositories/transaction_repository_impl.dart';
 import 'package:money_management_app/data/repositories/wallet_repository_impl.dart';
 import 'package:money_management_app/domain/repositories/category_repository.dart';
 import 'package:money_management_app/domain/repositories/expense_repository.dart';
 import 'package:money_management_app/domain/repositories/reminder_repository.dart';
+import 'package:money_management_app/domain/repositories/settings_repository.dart';
+import 'package:money_management_app/domain/repositories/transaction_repository.dart';
 import 'package:money_management_app/domain/repositories/wallet_repository.dart';
 import 'package:money_management_app/presentation/blocs/category/category_bloc.dart';
 import 'package:money_management_app/presentation/blocs/category/category_event.dart';
@@ -29,7 +35,6 @@ import 'package:money_management_app/presentation/screens/splash_screen.dart';
 import 'package:money_management_app/presentation/screens/wallet_setup_page.dart';
 import 'package:money_management_app/presentation/theme/app_colors.dart';
 import 'package:money_management_app/services/notification_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -106,16 +111,20 @@ void main() async {
   }
 
   // Datasources
+  final transactionDatasource = TransactionLocalDatasource(appDatabase: appDb);
   final expenseDatasource = ExpenseLocalDatasource(appDatabase: appDb);
   final categoryDatasource = CategoryLocalDatasource(appDatabase: appDb);
   final walletDatasource = WalletLocalDatasource(appDatabase: appDb);
   final reminderDatasource = ReminderLocalDatasource(appDatabase: appDb);
+  final appSettingsDatasource = AppSettingsLocalDatasource(appDatabase: appDb);
 
   // Repositories
+  final transactionRepository = TransactionRepositoryImpl(localDatasource: transactionDatasource);
   final expenseRepository = ExpenseRepositoryImpl(localDatasource: expenseDatasource);
   final categoryRepository = CategoryRepositoryImpl(localDatasource: categoryDatasource);
   final walletRepository = WalletRepositoryImpl(localDatasource: walletDatasource);
   final reminderRepository = ReminderRepositoryImpl(localDatasource: reminderDatasource);
+  final settingsRepository = SettingsRepositoryImpl(localDatasource: appSettingsDatasource);
 
   // Re-sync all active daily reminders with the system alarm manager
   try {
@@ -126,42 +135,52 @@ void main() async {
       for (final c in categories)
         if (c.id != null) c.id!: c.name,
     };
+    final catDefaults = {
+      for (final c in categories)
+        if (c.id != null) c.id!: c.defaultAmountCents,
+    };
     await NotificationService.instance.rescheduleAllReminders(
       activeReminders,
       catMap,
+      categoryDefaultAmounts: catDefaults,
     );
   } catch (e, st) {
     NotificationService.log('Error re-syncing reminders on startup: $e', error: e, stackTrace: st);
   }
 
-  final prefs = await SharedPreferences.getInstance();
-  final isSetupDone = prefs.getBool('wallet_setup_done') ?? false;
+  final isSetupDone = await settingsRepository.isWalletSetupDone();
 
   runApp(
     MyApp(
+      transactionRepository: transactionRepository,
       expenseRepository: expenseRepository,
       categoryRepository: categoryRepository,
       walletRepository: walletRepository,
       reminderRepository: reminderRepository,
+      settingsRepository: settingsRepository,
       isSetupDone: isSetupDone,
     ),
   );
 }
 
 class MyApp extends StatelessWidget {
+  final TransactionRepository transactionRepository;
   final ExpenseRepository expenseRepository;
   final CategoryRepository categoryRepository;
   final WalletRepository walletRepository;
   final ReminderRepository reminderRepository;
+  final SettingsRepository settingsRepository;
   final bool isSetupDone;
   final bool showSplash;
 
   const MyApp({
     super.key,
+    required this.transactionRepository,
     required this.expenseRepository,
     required this.categoryRepository,
     required this.walletRepository,
     required this.reminderRepository,
+    required this.settingsRepository,
     required this.isSetupDone,
     this.showSplash = true,
   });
@@ -180,18 +199,22 @@ class MyApp extends StatelessWidget {
 
     return MultiRepositoryProvider(
       providers: [
+        RepositoryProvider<TransactionRepository>.value(value: transactionRepository),
         RepositoryProvider<ExpenseRepository>.value(value: expenseRepository),
         RepositoryProvider<CategoryRepository>.value(value: categoryRepository),
         RepositoryProvider<WalletRepository>.value(value: walletRepository),
         RepositoryProvider<ReminderRepository>.value(value: reminderRepository),
+        RepositoryProvider<SettingsRepository>.value(value: settingsRepository),
       ],
       child: MultiBlocProvider(
         providers: [
           BlocProvider<ExpenseBloc>(
             create: (context) => ExpenseBloc(
+              transactionRepository: transactionRepository,
               expenseRepository: expenseRepository,
               categoryRepository: categoryRepository,
               walletRepository: walletRepository,
+              settingsRepository: settingsRepository,
             )..add(const LoadExpenses()),
           ),
           BlocProvider<WalletBloc>(
@@ -202,9 +225,10 @@ class MyApp extends StatelessWidget {
           ),
           BlocProvider<StatsBloc>(
             create: (context) => StatsBloc(
-              expenseRepository: expenseRepository,
+              transactionRepository: transactionRepository,
               categoryRepository: categoryRepository,
               walletRepository: walletRepository,
+              expenseRepository: expenseRepository,
             ),
           ),
           BlocProvider<CategoryBloc>(
@@ -221,18 +245,14 @@ class MyApp extends StatelessWidget {
         ],
         child: MaterialApp(
           navigatorKey: navigatorKey,
-          debugShowCheckedModeBanner: false,
           title: 'Vault',
-          theme: ThemeData(
-            brightness: Brightness.dark,
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData.dark().copyWith(
             scaffoldBackgroundColor: AppColors.background,
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: AppColors.primary,
-              brightness: Brightness.dark,
-              surface: AppColors.surface,
+            colorScheme: const ColorScheme.dark(
               primary: AppColors.primary,
+              surface: AppColors.surface,
             ),
-            useMaterial3: true,
           ),
           home: showSplash
               ? const SplashScreen()

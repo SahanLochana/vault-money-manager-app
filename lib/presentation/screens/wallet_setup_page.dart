@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:money_management_app/domain/models/wallet.dart';
-import 'package:money_management_app/domain/models/wallet_fund.dart';
+import 'package:money_management_app/domain/repositories/settings_repository.dart';
+import 'package:money_management_app/domain/repositories/wallet_repository.dart';
 import 'package:money_management_app/presentation/blocs/wallet/wallet_bloc.dart';
 import 'package:money_management_app/presentation/blocs/wallet/wallet_event.dart';
 import 'package:money_management_app/presentation/blocs/wallet/wallet_state.dart';
 import 'package:money_management_app/presentation/screens/main_shell.dart';
 import 'package:money_management_app/presentation/theme/app_colors.dart';
+import 'package:money_management_app/presentation/widgets/app_loading_indicator.dart';
 import 'package:money_management_app/presentation/widgets/app_text_field.dart';
 import 'package:money_management_app/presentation/widgets/emoji_avatar.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class WalletSetupPage extends StatefulWidget {
   const WalletSetupPage({super.key});
@@ -46,39 +47,38 @@ class _WalletSetupPageState extends State<WalletSetupPage> {
   Future<void> _saveAndProceed(List<Wallet> wallets) async {
     setState(() => _isLoading = true);
 
-    final now = DateTime.now().toIso8601String();
-    final walletBloc = context.read<WalletBloc>();
+    try {
+      final walletRepo = context.read<WalletRepository>();
+      final settingsRepo = context.read<SettingsRepository>();
 
-    for (final wallet in wallets) {
-      final text = _controllers[wallet.id]?.text.trim() ?? '';
-      final amt = double.tryParse(text) ?? 0.0;
-      if (amt > 0) {
-        walletBloc.add(
-          AddWalletFundsEvent(
-            WalletFund(
-              walletId: wallet.id,
-              amountCents: (amt * 100).toInt(),
-              note: "Initial setup balance",
-              createdAt: now,
-            ),
-          ),
+      for (final wallet in wallets) {
+        final text = _controllers[wallet.id]?.text.trim() ?? '';
+        final amt = double.tryParse(text) ?? 0.0;
+        final cents = (amt * 100).round();
+        if (cents != wallet.openingBalanceCents) {
+          await walletRepo.updateWallet(wallet.copyWith(openingBalanceCents: cents));
+        }
+      }
+
+      await settingsRepo.setWalletSetupDone(true);
+
+      if (mounted) {
+        context.read<WalletBloc>().add(const LoadWalletsEvent());
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const MainShell()),
         );
       }
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('wallet_setup_done', true);
-
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const MainShell()),
-      );
+    } catch (_) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   Future<void> _skipSetup() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('wallet_setup_done', true);
+    setState(() => _isLoading = true);
+    final settingsRepo = context.read<SettingsRepository>();
+    await settingsRepo.setWalletSetupDone(true);
 
     if (mounted) {
       Navigator.of(context).pushReplacement(
@@ -94,12 +94,11 @@ class _WalletSetupPageState extends State<WalletSetupPage> {
       body: SafeArea(
         child: BlocBuilder<WalletBloc, WalletState>(
           builder: (context, state) {
-            final List<Wallet> wallets = (state is WalletLoaded)
-                ? state.wallets
-                : [
-                    const Wallet(id: 1, name: 'In Hand', emoji: '👛'),
-                    const Wallet(id: 2, name: 'In Bank', emoji: '🏦'),
-                  ];
+            if (state is WalletLoading || state is! WalletLoaded) {
+              return const AppLoadingIndicator();
+            }
+
+            final List<Wallet> wallets = state.wallets;
 
             return Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -152,7 +151,7 @@ class _WalletSetupPageState extends State<WalletSetupPage> {
 
                           const Center(
                             child: Text(
-                              "Set your current balances to keep your net worth and spending accurately tracked.",
+                              "Set your current opening balances to keep your net worth and spending accurately tracked.",
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 color: AppColors.textSecondary,
@@ -200,7 +199,7 @@ class _WalletSetupPageState extends State<WalletSetupPage> {
                                   const SizedBox(height: 14),
                                   AppTextField(
                                     controller: controller,
-                                    keyboardType: TextInputType.number,
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                     hintText: "0.00",
                                     hintStyle: const TextStyle(
                                       color: AppColors.textMuted,

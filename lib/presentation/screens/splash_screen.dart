@@ -5,7 +5,8 @@ import 'package:money_management_app/presentation/screens/main_shell.dart';
 import 'package:money_management_app/presentation/screens/wallet_setup_page.dart';
 import 'package:money_management_app/presentation/theme/app_colors.dart';
 import 'package:money_management_app/services/notification_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:money_management_app/domain/repositories/settings_repository.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -54,8 +55,8 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _navigateToNextScreen() async {
-    final prefs = await SharedPreferences.getInstance();
-    final isSetupDone = prefs.getBool('wallet_setup_done') ?? false;
+    final settingsRepo = context.read<SettingsRepository>();
+    final isSetupDone = await settingsRepo.isWalletSetupDone();
 
     // Minimum splash duration for smooth animation viewing
     await Future.delayed(const Duration(milliseconds: 2000));

@@ -1,6 +1,7 @@
 import 'package:intl/intl.dart';
 import 'package:money_management_app/data/database/app_database.dart';
 import 'package:money_management_app/data/database/tables.dart';
+import 'package:money_management_app/data/datasources/transaction_local_datasource.dart';
 import 'package:money_management_app/domain/models/expense.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -13,42 +14,81 @@ class ExpenseLocalDatasource {
 
   Future<int> insertExpense(Expense expense) async {
     final db = await _db;
-    return await db.insert(AppTables.expenses, expense.toMap());
+    final now = DateTime.now().toIso8601String();
+    return await db.insert(AppTables.transactions, {
+      if (expense.id != null) AppTables.colTxId: expense.id,
+      AppTables.colTxType: 'expense',
+      AppTables.colTxAmountCents: expense.amountCents,
+      AppTables.colTxWalletId: expense.walletId,
+      AppTables.colTxToWalletId: null,
+      AppTables.colTxCategoryId: expense.categoryId,
+      AppTables.colTxOccurredDate: expense.expenseDate,
+      AppTables.colTxOccurredTime: expense.expenseTime,
+      AppTables.colTxNote: expense.note,
+      AppTables.colTxDeletedAt: expense.isDeleted ? now : null,
+      AppTables.colTxCreatedAt: expense.createdAt.toIso8601String(),
+      AppTables.colTxUpdatedAt: expense.updatedAt.toIso8601String(),
+    });
   }
 
   Future<int> updateExpense(Expense expense) async {
     final db = await _db;
     return await db.update(
-      AppTables.expenses,
-      expense.toMap(),
-      where: '${AppTables.colExpenseId} = ?',
-      whereArgs: [expense.id],
+      AppTables.transactions,
+      {
+        AppTables.colTxAmountCents: expense.amountCents,
+        AppTables.colTxWalletId: expense.walletId,
+        AppTables.colTxCategoryId: expense.categoryId,
+        AppTables.colTxOccurredDate: expense.expenseDate,
+        AppTables.colTxOccurredTime: expense.expenseTime,
+        AppTables.colTxNote: expense.note,
+        AppTables.colTxUpdatedAt: DateTime.now().toIso8601String(),
+      },
+      where: '${AppTables.colTxId} = ? AND ${AppTables.colTxType} = ?',
+      whereArgs: [expense.id, 'expense'],
     );
   }
 
   Future<int> softDeleteExpense(int id) async {
     final db = await _db;
+    final now = DateTime.now().toIso8601String();
     return await db.update(
-      AppTables.expenses,
+      AppTables.transactions,
       {
-        AppTables.colExpenseIsDeleted: 1,
-        AppTables.colExpenseUpdatedAt: DateTime.now().toIso8601String(),
+        AppTables.colTxDeletedAt: now,
+        AppTables.colTxUpdatedAt: now,
       },
-      where: '${AppTables.colExpenseId} = ?',
-      whereArgs: [id],
+      where: '${AppTables.colTxId} = ? AND ${AppTables.colTxType} = ?',
+      whereArgs: [id, 'expense'],
     );
   }
 
   Future<int> restoreExpense(int id) async {
     final db = await _db;
+    final now = DateTime.now().toIso8601String();
     return await db.update(
-      AppTables.expenses,
+      AppTables.transactions,
       {
-        AppTables.colExpenseIsDeleted: 0,
-        AppTables.colExpenseUpdatedAt: DateTime.now().toIso8601String(),
+        AppTables.colTxDeletedAt: null,
+        AppTables.colTxUpdatedAt: now,
       },
-      where: '${AppTables.colExpenseId} = ?',
-      whereArgs: [id],
+      where: '${AppTables.colTxId} = ? AND ${AppTables.colTxType} = ?',
+      whereArgs: [id, 'expense'],
+    );
+  }
+
+  Expense _rowToExpense(Map<String, dynamic> row) {
+    return Expense(
+      id: row[AppTables.colTxId] as int?,
+      categoryId: (row[AppTables.colTxCategoryId] as int?) ?? 0,
+      amountCents: row[AppTables.colTxAmountCents] as int,
+      walletId: row[AppTables.colTxWalletId] as int,
+      expenseDate: row[AppTables.colTxOccurredDate] as String,
+      expenseTime: row[AppTables.colTxOccurredTime] as String,
+      note: row[AppTables.colTxNote] as String?,
+      isDeleted: row[AppTables.colTxDeletedAt] != null,
+      createdAt: DateTime.parse(row[AppTables.colTxCreatedAt] as String),
+      updatedAt: DateTime.parse(row[AppTables.colTxUpdatedAt] as String),
     );
   }
 
@@ -57,39 +97,40 @@ class ExpenseLocalDatasource {
     final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
     final maps = await db.query(
-      AppTables.expenses,
-      where: '${AppTables.colExpenseIsDeleted} = 0 AND ${AppTables.colExpenseDate} = ?',
-      whereArgs: [todayStr],
-      orderBy: '${AppTables.colExpenseCreatedAt} DESC',
+      AppTables.transactions,
+      where: '${AppTables.colTxDeletedAt} IS NULL AND ${AppTables.colTxType} = ? AND ${AppTables.colTxOccurredDate} = ?',
+      whereArgs: ['expense', todayStr],
+      orderBy: '${AppTables.colTxOccurredTime} DESC, ${AppTables.colTxCreatedAt} DESC',
     );
 
-    return maps.map((e) => Expense.fromMap(e)).toList();
+    return maps.map(_rowToExpense).toList();
   }
 
   Future<List<Expense>> getAllActiveExpenses() async {
     final db = await _db;
     final maps = await db.query(
-      AppTables.expenses,
-      where: '${AppTables.colExpenseIsDeleted} = 0',
-      orderBy: '${AppTables.colExpenseDate} DESC, ${AppTables.colExpenseCreatedAt} DESC',
+      AppTables.transactions,
+      where: '${AppTables.colTxDeletedAt} IS NULL AND ${AppTables.colTxType} = ?',
+      whereArgs: ['expense'],
+      orderBy: '${AppTables.colTxOccurredDate} DESC, ${AppTables.colTxOccurredTime} DESC, ${AppTables.colTxCreatedAt} DESC',
     );
 
-    return maps.map((e) => Expense.fromMap(e)).toList();
+    return maps.map(_rowToExpense).toList();
   }
 
+  /// Range query replacing LIKE 'YYYY-MM%'
   Future<List<Expense>> getExpensesForMonth(int year, int month) async {
     final db = await _db;
-    final monthStr = month.toString().padLeft(2, '0');
-    final startPrefix = '$year-$monthStr';
+    final (startStr, endStr) = TransactionLocalDatasource.getMonthRange(year, month);
 
     final maps = await db.query(
-      AppTables.expenses,
-      where: '${AppTables.colExpenseIsDeleted} = 0 AND ${AppTables.colExpenseDate} LIKE ?',
-      whereArgs: ['$startPrefix%'],
-      orderBy: '${AppTables.colExpenseDate} DESC, ${AppTables.colExpenseCreatedAt} DESC',
+      AppTables.transactions,
+      where: '${AppTables.colTxDeletedAt} IS NULL AND ${AppTables.colTxType} = ? AND ${AppTables.colTxOccurredDate} >= ? AND ${AppTables.colTxOccurredDate} < ?',
+      whereArgs: ['expense', startStr, endStr],
+      orderBy: '${AppTables.colTxOccurredDate} DESC, ${AppTables.colTxOccurredTime} DESC, ${AppTables.colTxCreatedAt} DESC',
     );
 
-    return maps.map((e) => Expense.fromMap(e)).toList();
+    return maps.map(_rowToExpense).toList();
   }
 
   Future<int> getTodayTotalCents() async {
@@ -98,77 +139,77 @@ class ExpenseLocalDatasource {
 
     final result = await db.rawQuery(
       '''
-      SELECT SUM(${AppTables.colExpenseAmountCents}) as total
-      FROM ${AppTables.expenses}
-      WHERE ${AppTables.colExpenseIsDeleted} = 0 AND ${AppTables.colExpenseDate} = ?
+      SELECT COALESCE(SUM(${AppTables.colTxAmountCents}), 0) as total
+      FROM ${AppTables.transactions}
+      WHERE ${AppTables.colTxDeletedAt} IS NULL AND ${AppTables.colTxType} = ? AND ${AppTables.colTxOccurredDate} = ?
       ''',
-      [todayStr],
+      ['expense', todayStr],
     );
 
-    final total = result.first['total'] as int?;
-    return total ?? 0;
+    return (result.first['total'] as int?) ?? 0;
   }
 
+  /// Range query replacing LIKE 'YYYY-MM%'
   Future<int> getMonthlyTotalCents(int year, int month) async {
     final db = await _db;
-    final monthStr = month.toString().padLeft(2, '0');
-    final startPrefix = '$year-$monthStr';
+    final (startStr, endStr) = TransactionLocalDatasource.getMonthRange(year, month);
 
     final result = await db.rawQuery(
       '''
-      SELECT SUM(${AppTables.colExpenseAmountCents}) as total
-      FROM ${AppTables.expenses}
-      WHERE ${AppTables.colExpenseIsDeleted} = 0 AND ${AppTables.colExpenseDate} LIKE ?
+      SELECT COALESCE(SUM(${AppTables.colTxAmountCents}), 0) as total
+      FROM ${AppTables.transactions}
+      WHERE ${AppTables.colTxDeletedAt} IS NULL AND ${AppTables.colTxType} = ? AND ${AppTables.colTxOccurredDate} >= ? AND ${AppTables.colTxOccurredDate} < ?
       ''',
-      ['$startPrefix%'],
+      ['expense', startStr, endStr],
     );
 
-    final total = result.first['total'] as int?;
-    return total ?? 0;
+    return (result.first['total'] as int?) ?? 0;
   }
 
+  /// Range query replacing LIKE 'YYYY-MM%'
   Future<Map<int, int>> getMonthlyCategoryTotalsCents(int year, int month) async {
     final db = await _db;
-    final monthStr = month.toString().padLeft(2, '0');
-    final startPrefix = '$year-$monthStr';
+    final (startStr, endStr) = TransactionLocalDatasource.getMonthRange(year, month);
 
     final results = await db.rawQuery(
       '''
-      SELECT ${AppTables.colExpenseCategoryId}, SUM(${AppTables.colExpenseAmountCents}) as total
-      FROM ${AppTables.expenses}
-      WHERE ${AppTables.colExpenseIsDeleted} = 0 AND ${AppTables.colExpenseDate} LIKE ?
-      GROUP BY ${AppTables.colExpenseCategoryId}
+      SELECT ${AppTables.colTxCategoryId}, SUM(${AppTables.colTxAmountCents}) as total
+      FROM ${AppTables.transactions}
+      WHERE ${AppTables.colTxDeletedAt} IS NULL AND ${AppTables.colTxType} = ? AND ${AppTables.colTxOccurredDate} >= ? AND ${AppTables.colTxOccurredDate} < ?
+      GROUP BY ${AppTables.colTxCategoryId}
       ''',
-      ['$startPrefix%'],
+      ['expense', startStr, endStr],
     );
 
     final Map<int, int> totals = {};
     for (final row in results) {
-      final categoryId = row[AppTables.colExpenseCategoryId] as int;
-      final total = (row['total'] as int?) ?? 0;
-      totals[categoryId] = total;
+      final categoryId = row[AppTables.colTxCategoryId] as int?;
+      if (categoryId != null) {
+        final total = (row['total'] as int?) ?? 0;
+        totals[categoryId] = total;
+      }
     }
     return totals;
   }
 
+  /// Range query replacing LIKE 'YYYY-MM%'
   Future<Map<int, int>> getMonthlyWalletTotalsCents(int year, int month) async {
     final db = await _db;
-    final monthStr = month.toString().padLeft(2, '0');
-    final startPrefix = '$year-$monthStr';
+    final (startStr, endStr) = TransactionLocalDatasource.getMonthRange(year, month);
 
     final results = await db.rawQuery(
       '''
-      SELECT ${AppTables.colExpenseWalletId}, SUM(${AppTables.colExpenseAmountCents}) as total
-      FROM ${AppTables.expenses}
-      WHERE ${AppTables.colExpenseIsDeleted} = 0 AND ${AppTables.colExpenseDate} LIKE ?
-      GROUP BY ${AppTables.colExpenseWalletId}
+      SELECT ${AppTables.colTxWalletId}, SUM(${AppTables.colTxAmountCents}) as total
+      FROM ${AppTables.transactions}
+      WHERE ${AppTables.colTxDeletedAt} IS NULL AND ${AppTables.colTxType} = ? AND ${AppTables.colTxOccurredDate} >= ? AND ${AppTables.colTxOccurredDate} < ?
+      GROUP BY ${AppTables.colTxWalletId}
       ''',
-      ['$startPrefix%'],
+      ['expense', startStr, endStr],
     );
 
     final Map<int, int> totals = {};
     for (final row in results) {
-      final walletId = row[AppTables.colExpenseWalletId] as int;
+      final walletId = row[AppTables.colTxWalletId] as int;
       final total = (row['total'] as int?) ?? 0;
       totals[walletId] = total;
     }
@@ -179,33 +220,38 @@ class ExpenseLocalDatasource {
     final db = await _db;
     final results = await db.rawQuery(
       '''
-      SELECT ${AppTables.colExpenseWalletId}, SUM(${AppTables.colExpenseAmountCents}) as total
-      FROM ${AppTables.expenses}
-      WHERE ${AppTables.colExpenseIsDeleted} = 0
-      GROUP BY ${AppTables.colExpenseWalletId}
+      SELECT ${AppTables.colTxWalletId}, SUM(${AppTables.colTxAmountCents}) as total
+      FROM ${AppTables.transactions}
+      WHERE ${AppTables.colTxDeletedAt} IS NULL AND ${AppTables.colTxType} = ?
+      GROUP BY ${AppTables.colTxWalletId}
       ''',
+      ['expense'],
     );
 
     final Map<int, int> totals = {};
     for (final row in results) {
-      final walletId = row[AppTables.colExpenseWalletId] as int;
+      final walletId = row[AppTables.colTxWalletId] as int;
       final total = (row['total'] as int?) ?? 0;
       totals[walletId] = total;
     }
     return totals;
   }
 
+  /// Clears ALL ledger rows (expense, income, transfer) in a single transaction.
   Future<void> clearAllExpenses() async {
     final db = await _db;
-    await db.delete(AppTables.expenses);
+    await db.transaction((txn) async {
+      await txn.delete(AppTables.transactions);
+    });
   }
 
   Future<List<Map<String, dynamic>>> exportAllExpenses() async {
     final db = await _db;
     return await db.query(
-      AppTables.expenses,
-      where: '${AppTables.colExpenseIsDeleted} = 0',
-      orderBy: '${AppTables.colExpenseDate} DESC',
+      AppTables.transactions,
+      where: '${AppTables.colTxDeletedAt} IS NULL AND ${AppTables.colTxType} = ?',
+      whereArgs: ['expense'],
+      orderBy: '${AppTables.colTxOccurredDate} DESC',
     );
   }
 }

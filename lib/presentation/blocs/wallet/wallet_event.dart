@@ -1,3 +1,4 @@
+import 'package:money_management_app/domain/models/wallet.dart';
 import 'package:money_management_app/domain/models/wallet_fund.dart';
 import 'package:money_management_app/domain/models/wallet_transfer.dart';
 
@@ -19,6 +20,11 @@ class DeleteWalletFundEvent extends WalletEvent {
   const DeleteWalletFundEvent(this.fundId);
 }
 
+class RestoreWalletFundEvent extends WalletEvent {
+  final int fundId;
+  const RestoreWalletFundEvent(this.fundId);
+}
+
 class AddWalletTransferEvent extends WalletEvent {
   final WalletTransfer transfer;
   const AddWalletTransferEvent(this.transfer);
@@ -32,5 +38,10 @@ class DeleteWalletTransferEvent extends WalletEvent {
 class RestoreWalletTransferEvent extends WalletEvent {
   final int transferId;
   const RestoreWalletTransferEvent(this.transferId);
+}
+
+class UpdateWalletEvent extends WalletEvent {
+  final Wallet wallet;
+  const UpdateWalletEvent(this.wallet);
 }
 

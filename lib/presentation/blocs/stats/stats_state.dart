@@ -1,5 +1,5 @@
 import 'package:money_management_app/domain/models/category.dart';
-import 'package:money_management_app/domain/models/expense.dart';
+import 'package:money_management_app/domain/models/ledger_transaction.dart';
 import 'package:money_management_app/domain/models/wallet.dart';
 
 class CategorySpending {
@@ -44,7 +44,7 @@ class StatsLoaded extends StatsState {
   final double monthlyTotal;
   final List<CategorySpending> categoryBreakdown;
   final List<WalletSpending> walletBreakdown;
-  final List<Expense> recentExpenses;
+  final List<LedgerTransaction> recentExpenses;
   final List<Category> allCategories;
   final List<Wallet> allWallets;
 

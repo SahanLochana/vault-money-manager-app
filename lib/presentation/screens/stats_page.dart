@@ -184,7 +184,7 @@ class _StatsPageState extends State<StatsPage> {
                             .firstOrNull;
 
                         return TransactionCard(
-                          expense: exp,
+                          transaction: exp,
                           category: cat,
                           wallet: wallet,
                         );

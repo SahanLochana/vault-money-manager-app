@@ -19,6 +19,26 @@ class ReminderBloc extends Bloc<ReminderEvent, ReminderState> {
     on<DeleteReminderEvent>(_onDeleteReminder);
     on<ToggleReminderEvent>(_onToggleReminder);
     on<RescheduleAllRemindersEvent>(_onRescheduleAllReminders);
+    on<RemoveCategoryRemindersEvent>(_onRemoveCategoryReminders);
+  }
+
+  Future<void> _onRemoveCategoryReminders(
+    RemoveCategoryRemindersEvent event,
+    Emitter<ReminderState> emit,
+  ) async {
+    try {
+      final reminders = await reminderRepository.getAllReminders();
+      for (final slot in reminders) {
+        if (slot.categoryId == event.categoryId && slot.id != null) {
+          await NotificationService.instance.cancelReminder(slot.id!);
+          await reminderRepository.deleteReminder(slot.id!);
+        }
+      }
+      add(const LoadRemindersEvent());
+    } catch (e, st) {
+      NotificationService.log('ReminderBloc: _onRemoveCategoryReminders error: $e', error: e, stackTrace: st);
+      emit(ReminderError(e.toString()));
+    }
   }
 
   Future<void> _onRescheduleAllReminders(
@@ -33,7 +53,15 @@ class ReminderBloc extends Bloc<ReminderEvent, ReminderState> {
         for (final c in categories)
           if (c.id != null) c.id!: c.name,
       };
-      await NotificationService.instance.rescheduleAllReminders(reminders, catMap);
+      final catDefaults = {
+        for (final c in categories)
+          if (c.id != null) c.id!: c.defaultAmountCents,
+      };
+      await NotificationService.instance.rescheduleAllReminders(
+        reminders,
+        catMap,
+        categoryDefaultAmounts: catDefaults,
+      );
       emit(ReminderLoaded(reminders: reminders, categories: categories));
     } catch (e, st) {
       NotificationService.log('ReminderBloc: _onRescheduleAllReminders error: $e', error: e, stackTrace: st);
@@ -75,9 +103,11 @@ class ReminderBloc extends Bloc<ReminderEvent, ReminderState> {
       final id = await reminderRepository.addReminder(slotToSave);
       final cat = await categoryRepository.getCategoryById(slotToSave.categoryId);
       if (slotToSave.isActive) {
+        final effectiveAmount = slotToSave.effectiveAmountCents(cat?.defaultAmountCents);
         await NotificationService.instance.scheduleReminder(
           slotToSave.copyWith(id: id),
           cat?.name ?? 'Expense Reminder',
+          effectiveAmountCents: effectiveAmount,
         );
       }
       add(const LoadRemindersEvent());
@@ -106,9 +136,11 @@ class ReminderBloc extends Bloc<ReminderEvent, ReminderState> {
       if (slotToUpdate.id != null) {
         final cat = await categoryRepository.getCategoryById(slotToUpdate.categoryId);
         if (slotToUpdate.isActive) {
+          final effectiveAmount = slotToUpdate.effectiveAmountCents(cat?.defaultAmountCents);
           await NotificationService.instance.scheduleReminder(
             slotToUpdate,
             cat?.name ?? 'Expense Reminder',
+            effectiveAmountCents: effectiveAmount,
           );
         } else {
           await NotificationService.instance.cancelReminder(slotToUpdate.id!);
@@ -156,9 +188,11 @@ class ReminderBloc extends Bloc<ReminderEvent, ReminderState> {
         final reminders = await reminderRepository.getAllReminders();
         final slot = reminders.firstWhere((r) => r.id == event.id);
         final cat = await categoryRepository.getCategoryById(slot.categoryId);
+        final effectiveAmount = slot.effectiveAmountCents(cat?.defaultAmountCents);
         await NotificationService.instance.scheduleReminder(
           slot,
           cat?.name ?? 'Expense Reminder',
+          effectiveAmountCents: effectiveAmount,
         );
       } else {
         await NotificationService.instance.cancelReminder(event.id);
