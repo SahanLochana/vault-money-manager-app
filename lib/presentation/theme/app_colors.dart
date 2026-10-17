@@ -22,11 +22,18 @@ class AppColors {
   static const textSecondary = Color(0xFF9090A6);
   static const textMuted = Color(0xFF63637B);
 
-  // Category Colors (Matching System Categories: Breakfast, Lunch, Dinner, Lending, Other)
-  static const breakfast = Color(0xFFFF9F43);
-  static const lunch = Color(0xFF00D2D3);
-  static const dinner = Color(0xFF54A0FF);
-  static const lending = Color(0xFF9B59B6);
-  static const other = Color(0xFF10AC84);
-  static const snack = Color(0xFFFF6B6B);
+  // Curated stable category color palette (indexed by category.id % length)
+  static const List<Color> categoryPalette = [
+    Color(0xFFFF9F43), // Warm amber
+    Color(0xFF00D2D3), // Turquoise
+    Color(0xFF54A0FF), // Soft blue
+    Color(0xFF9B59B6), // Purple
+    Color(0xFF10AC84), // Emerald
+    Color(0xFFFF6B6B), // Coral
+    Color(0xFFFECA57), // Sunflower
+    Color(0xFF48DBFB), // Cyan
+    Color(0xFF1DD1A1), // Mint
+    Color(0xFFFF9FF3), // Pink
+    Color(0xFF5F27CD), // Indigo
+  ];
 }

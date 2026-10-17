@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
-import 'package:money_management_app/domain/models/expense.dart';
+import 'package:money_management_app/domain/models/category.dart';
+import 'package:money_management_app/domain/models/ledger_transaction.dart';
 import 'package:money_management_app/domain/models/wallet.dart';
-import 'package:money_management_app/domain/models/wallet_transfer.dart';
 import 'package:money_management_app/presentation/blocs/expense/expense_bloc.dart';
 import 'package:money_management_app/presentation/blocs/expense/expense_event.dart';
 import 'package:money_management_app/presentation/blocs/expense/expense_state.dart';
@@ -21,51 +21,9 @@ import 'package:money_management_app/presentation/widgets/herocard.dart';
 import 'package:money_management_app/presentation/widgets/section_header.dart';
 import 'package:money_management_app/presentation/widgets/transaction_details_sheet.dart';
 import 'package:money_management_app/presentation/widgets/transactioncard.dart';
-import 'package:money_management_app/presentation/widgets/transfer_card.dart';
-import 'package:money_management_app/presentation/widgets/transfer_details_sheet.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-sealed class TodayActivityItem {
-  String get time;
-}
-
-class TodayExpenseItem extends TodayActivityItem {
-  final Expense expense;
-  TodayExpenseItem(this.expense);
-  @override
-  String get time => expense.expenseTime;
-}
-
-class TodayTransferItem extends TodayActivityItem {
-  final WalletTransfer transfer;
-  TodayTransferItem(this.transfer);
-  @override
-  String get time => transfer.transferTime;
-}
-
-class Homepage extends StatefulWidget {
+class Homepage extends StatelessWidget {
   const Homepage({super.key});
-
-  @override
-  State<Homepage> createState() => _HomepageState();
-}
-
-class _HomepageState extends State<Homepage> {
-  double _dailyBudget = 500.0;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadDailyBudget();
-  }
-
-  Future<void> _loadDailyBudget() async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedBudget = prefs.getDouble('daily_budget') ?? 500.0;
-    if (mounted) {
-      setState(() => _dailyBudget = savedBudget);
-    }
-  }
 
   String _getGreeting() {
     final hour = DateTime.now().hour;
@@ -78,70 +36,69 @@ class _HomepageState extends State<Homepage> {
     }
   }
 
-  void _deleteExpense(Expense exp) {
-    if (exp.id == null) return;
-    final expId = exp.id!;
-    context.read<ExpenseBloc>().add(DeleteExpenseEvent(expId));
+  void _deleteTransaction(BuildContext context, LedgerTransaction tx) {
+    if (tx.id == null) return;
+    final txId = tx.id!;
+    context.read<ExpenseBloc>().add(DeleteExpenseEvent(txId));
+
+    String actionMsg;
+    if (tx is TransferTransaction) {
+      actionMsg = "Reverted transfer (${tx.formattedAmount})";
+    } else if (tx is IncomeTransaction) {
+      actionMsg = "Deleted income (${tx.formattedAmount})";
+    } else {
+      actionMsg = "Deleted expense (${tx.formattedAmount}) • Restored to wallet";
+    }
 
     AppSnackBar.show(
       context,
-      message: "Deleted expense (${exp.formattedAmount}) • Restored to wallet",
+      message: actionMsg,
       actionLabel: "Undo",
       durationSeconds: 3,
       onAction: () {
-        context.read<ExpenseBloc>().add(RestoreExpenseEvent(expId));
+        context.read<ExpenseBloc>().add(RestoreExpenseEvent(txId));
       },
     );
   }
 
-  void _deleteTransfer(WalletTransfer transfer, Wallet? fromWallet) {
-    if (transfer.id == null) return;
-    final transferId = transfer.id!;
-    context.read<WalletBloc>().add(DeleteWalletTransferEvent(transferId));
-    context.read<ExpenseBloc>().add(const LoadExpenses());
-
-    AppSnackBar.show(
-      context,
-      message: "Reverted transfer (${transfer.formattedAmount}) • Returned to ${fromWallet?.name ?? 'wallet'}",
-      actionLabel: "Undo",
-      durationSeconds: 3,
-      onAction: () {
-        context.read<WalletBloc>().add(RestoreWalletTransferEvent(transferId));
-        context.read<ExpenseBloc>().add(const LoadExpenses());
-      },
-    );
+  Future<bool> _confirmDeleteDialog(BuildContext context, LedgerTransaction tx, Wallet? wallet, Wallet? toWallet) async {
+    if (tx is TransferTransaction) {
+      final fromName = wallet?.name ?? "source wallet";
+      final toName = toWallet?.name ?? "destination wallet";
+      return ConfirmActionDialog.show(
+        context,
+        title: "Revert Transfer?",
+        message:
+            "Are you sure you want to revert this transfer (${tx.formattedAmount})? This will return ${tx.formattedAmount} to $fromName and deduct it from $toName.",
+        confirmLabel: "Revert",
+        confirmColor: AppColors.expense,
+      );
+    } else if (tx is IncomeTransaction) {
+      return ConfirmActionDialog.show(
+        context,
+        title: "Delete Income?",
+        message:
+            "Are you sure you want to delete this income (${tx.formattedAmount})? This will deduct ${tx.formattedAmount} from ${wallet?.name ?? 'your wallet'}.",
+        confirmLabel: "Delete",
+        confirmColor: AppColors.expense,
+      );
+    } else {
+      return ConfirmActionDialog.show(
+        context,
+        title: "Delete Expense?",
+        message:
+            "Are you sure you want to delete this expense (${tx.formattedAmount})? This will restore ${tx.formattedAmount} back to your wallet balance.",
+        confirmLabel: "Delete",
+        confirmColor: AppColors.expense,
+      );
+    }
   }
 
-  Future<bool> _confirmDeleteExpenseDialog(Expense exp) async {
-    return ConfirmActionDialog.show(
-      context,
-      title: "Delete Expense?",
-      message:
-          "Are you sure you want to delete this expense (${exp.formattedAmount})? This will restore ${exp.formattedAmount} back to your wallet balance.",
-      confirmLabel: "Delete",
-      confirmColor: AppColors.expense,
-    );
-  }
-
-  Future<bool> _confirmDeleteTransferDialog(WalletTransfer transfer, Wallet? fromWallet, Wallet? toWallet) async {
-    final fromName = fromWallet?.name ?? "source wallet";
-    final toName = toWallet?.name ?? "destination wallet";
-
-    return ConfirmActionDialog.show(
-      context,
-      title: "Revert Transfer?",
-      message:
-          "Are you sure you want to revert this transfer (${transfer.formattedAmount})? This will return ${transfer.formattedAmount} to $fromName and deduct it from $toName.",
-      confirmLabel: "Revert",
-      confirmColor: AppColors.expense,
-    );
-  }
-
-  void _editExpense(Expense exp) {
+  void _editTransaction(BuildContext context, LedgerTransaction tx) {
     Navigator.of(context).push(
       MaterialPageRoute(
         fullscreenDialog: true,
-        builder: (context) => AddTransactionPage(expenseToEdit: exp),
+        builder: (context) => AddTransactionPage(transactionToEdit: tx),
       ),
     );
   }
@@ -202,9 +159,12 @@ class _HomepageState extends State<Homepage> {
                 ),
               ),
               onPressed: () {
+                final expenseBloc = context.read<ExpenseBloc>();
                 Navigator.of(context).push(
                   MaterialPageRoute(builder: (context) => const SettingsPage()),
-                ).then((_) => _loadDailyBudget());
+                ).then((_) {
+                  expenseBloc.add(const LoadExpenses());
+                });
               },
             ),
           ),
@@ -224,21 +184,16 @@ class _HomepageState extends State<Homepage> {
               ),
             );
           }
-          List<Expense> todayExpenses = [];
-          List<WalletTransfer> todayTransfers = [];
+
+          List<LedgerTransaction> todayTransactions = [];
           double todaySpent = 0.0;
+          double dailyBudget = 500.0;
 
           if (state is ExpenseLoaded) {
-            todayExpenses = state.todayExpenses;
-            todayTransfers = state.todayTransfers;
+            todayTransactions = state.todayTransactions;
             todaySpent = state.todayTotal;
+            dailyBudget = state.dailyBudget;
           }
-
-          final List<TodayActivityItem> activityItems = [
-            ...todayExpenses.map((e) => TodayExpenseItem(e)),
-            ...todayTransfers.map((t) => TodayTransferItem(t)),
-          ];
-          activityItems.sort((a, b) => b.time.compareTo(a.time));
 
           return RefreshIndicator(
             color: AppColors.primary,
@@ -258,7 +213,7 @@ class _HomepageState extends State<Homepage> {
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
                     child: TodaySpentCard(
                       dailySpent: todaySpent,
-                      dailyBudget: _dailyBudget,
+                      dailyBudget: dailyBudget,
                     ),
                   ),
                 ),
@@ -369,7 +324,7 @@ class _HomepageState extends State<Homepage> {
                 ),
 
                 // Today's Activity List or Empty State
-                if (activityItems.isEmpty)
+                if (todayTransactions.isEmpty)
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 48),
@@ -401,7 +356,7 @@ class _HomepageState extends State<Homepage> {
                             ),
                             const SizedBox(height: 4),
                             const Text(
-                              "Tap the + button to add an expense or transfer",
+                              "Tap the + button to add an expense, income or transfer",
                               style: TextStyle(
                                 color: AppColors.textMuted,
                                 fontSize: 12,
@@ -418,142 +373,83 @@ class _HomepageState extends State<Homepage> {
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {
-                          final item = activityItems[index];
+                          final tx = todayTransactions[index];
+                          Category? category;
+                          Wallet? wallet;
+                          Wallet? toWallet;
 
-                          if (item is TodayExpenseItem) {
-                            final exp = item.expense;
-                            final category = state is ExpenseLoaded
-                                ? state.getCategory(exp.categoryId)
-                                : null;
-                            final wallet = state is ExpenseLoaded
-                                ? state.getWallet(exp.walletId)
-                                : null;
-
-                            return Dismissible(
-                              key: Key('expense_${exp.id}'),
-                              direction: DismissDirection.endToStart,
-                              background: Container(
-                                margin: const EdgeInsets.only(bottom: 10),
-                                padding: const EdgeInsets.only(right: 20),
-                                alignment: Alignment.centerRight,
-                                decoration: BoxDecoration(
-                                  color: AppColors.expense.withValues(alpha: 0.9),
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                child: const Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      "Delete",
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                    SizedBox(width: 8),
-                                    Icon(
-                                      Icons.delete_outline_rounded,
-                                      color: Colors.white,
-                                      size: 22,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              confirmDismiss: (direction) => _confirmDeleteExpenseDialog(exp),
-                              onDismissed: (direction) => _deleteExpense(exp),
-                              child: TransactionCard(
-                                expense: exp,
-                                category: category,
-                                wallet: wallet,
-                                onTap: () {
-                                  TransactionDetailsSheet.show(
-                                    context,
-                                    expense: exp,
-                                    category: category,
-                                    wallet: wallet,
-                                    onDelete: () async {
-                                      final confirmed = await _confirmDeleteExpenseDialog(exp);
-                                      if (confirmed) {
-                                        _deleteExpense(exp);
-                                      }
-                                    },
-                                    onEdit: () => _editExpense(exp),
-                                  );
-                                },
-                              ),
-                            );
-                          } else if (item is TodayTransferItem) {
-                            final transfer = item.transfer;
-                            final fromWallet = state is ExpenseLoaded
-                                ? state.getWallet(transfer.fromWalletId)
-                                : null;
-                            final toWallet = state is ExpenseLoaded
-                                ? state.getWallet(transfer.toWalletId)
-                                : null;
-
-                            return Dismissible(
-                              key: Key('transfer_${transfer.id}'),
-                              direction: DismissDirection.endToStart,
-                              background: Container(
-                                margin: const EdgeInsets.only(bottom: 10),
-                                padding: const EdgeInsets.only(right: 20),
-                                alignment: Alignment.centerRight,
-                                decoration: BoxDecoration(
-                                  color: AppColors.expense.withValues(alpha: 0.9),
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                child: const Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      "Revert",
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                    SizedBox(width: 8),
-                                    Icon(
-                                      Icons.delete_outline_rounded,
-                                      color: Colors.white,
-                                      size: 22,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              confirmDismiss: (direction) =>
-                                  _confirmDeleteTransferDialog(transfer, fromWallet, toWallet),
-                              onDismissed: (direction) => _deleteTransfer(transfer, fromWallet),
-                              child: TransferCard(
-                                transfer: transfer,
-                                fromWallet: fromWallet,
-                                toWallet: toWallet,
-                                onTap: () {
-                                  TransferDetailsSheet.show(
-                                    context,
-                                    transfer: transfer,
-                                    fromWallet: fromWallet,
-                                    toWallet: toWallet,
-                                    onDelete: () async {
-                                      final confirmed = await _confirmDeleteTransferDialog(
-                                        transfer,
-                                        fromWallet,
-                                        toWallet,
-                                      );
-                                      if (confirmed) {
-                                        _deleteTransfer(transfer, fromWallet);
-                                      }
-                                    },
-                                  );
-                                },
-                              ),
-                            );
+                          if (state is ExpenseLoaded) {
+                            if (tx.categoryId != null) {
+                              category = state.getCategory(tx.categoryId!);
+                            }
+                            wallet = state.getWallet(tx.walletId);
+                            final targetWalletId = tx.toWalletId;
+                            if (targetWalletId != null) {
+                              toWallet = state.getWallet(targetWalletId);
+                            }
                           }
-                          return const SizedBox.shrink();
+
+                          final isTransfer = tx is TransferTransaction;
+                          final deleteLabel = isTransfer ? "Revert" : "Delete";
+
+                          return Dismissible(
+                            key: Key('tx_${tx.id}'),
+                            direction: DismissDirection.endToStart,
+                            background: Container(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              padding: const EdgeInsets.only(right: 20),
+                              alignment: Alignment.centerRight,
+                              decoration: BoxDecoration(
+                                color: AppColors.expense.withValues(alpha: 0.9),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    deleteLabel,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Icon(
+                                    Icons.delete_outline_rounded,
+                                    color: Colors.white,
+                                    size: 22,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            confirmDismiss: (direction) =>
+                                _confirmDeleteDialog(context, tx, wallet, toWallet),
+                            onDismissed: (direction) => _deleteTransaction(context, tx),
+                            child: TransactionCard(
+                              transaction: tx,
+                              category: category,
+                              wallet: wallet,
+                              onTap: () {
+                                TransactionDetailsSheet.show(
+                                  context,
+                                  transaction: tx,
+                                  category: category,
+                                  wallet: wallet,
+                                  onDelete: () async {
+                                    final confirmed =
+                                        await _confirmDeleteDialog(context, tx, wallet, toWallet);
+                                    if (confirmed && context.mounted) {
+                                      _deleteTransaction(context, tx);
+                                    }
+                                  },
+                                  onEdit: () => _editTransaction(context, tx),
+                                );
+                              },
+                            ),
+                          );
                         },
-                        childCount: activityItems.length,
+                        childCount: todayTransactions.length,
                       ),
                     ),
                   ),

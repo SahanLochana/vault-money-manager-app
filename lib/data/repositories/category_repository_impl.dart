@@ -8,8 +8,13 @@ class CategoryRepositoryImpl implements CategoryRepository {
   CategoryRepositoryImpl({required this.localDatasource});
 
   @override
-  Future<List<Category>> getAllCategories() async {
-    return await localDatasource.getAllCategories();
+  Future<List<Category>> getAllCategories({String? kind}) async {
+    return await localDatasource.getAllCategories(kind: kind);
+  }
+
+  @override
+  Future<List<Category>> getAllCategoriesIncludingDeleted({String? kind}) async {
+    return await localDatasource.getAllCategoriesIncludingDeleted(kind: kind);
   }
 
   @override
@@ -23,12 +28,32 @@ class CategoryRepositoryImpl implements CategoryRepository {
   }
 
   @override
-  Future<void> deleteCategory(int id) async {
-    await localDatasource.deleteCategory(id);
+  Future<void> updateCategory(Category category) async {
+    await localDatasource.updateCategory(category);
+  }
+
+  @override
+  Future<List<int>> deleteCategory(int id) async {
+    return await localDatasource.deleteCategory(id);
+  }
+
+  @override
+  Future<void> restoreCategory(int id) async {
+    await localDatasource.restoreCategory(id);
   }
 
   @override
   Future<bool> categoryHasExpenses(int id) async {
     return await localDatasource.categoryHasExpenses(id);
+  }
+
+  @override
+  Future<int> countTransactionsForCategory(int id) async {
+    return await localDatasource.countTransactionsForCategory(id);
+  }
+
+  @override
+  Future<int> countRemindersForCategory(int id) async {
+    return await localDatasource.countRemindersForCategory(id);
   }
 }

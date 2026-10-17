@@ -10,12 +10,35 @@ class CategoryLocalDatasource {
 
   Future<Database> get _db => appDatabase.database;
 
-  Future<List<Category>> getAllCategories() async {
+  Future<List<Category>> getAllCategories({String? kind}) async {
     final db = await _db;
+    final whereClauses = <String>['${AppTables.colCatDeletedAt} IS NULL'];
+    final whereArgs = <dynamic>[];
+
+    if (kind != null) {
+      whereClauses.add('${AppTables.colCatKind} = ?');
+      whereArgs.add(kind);
+    }
+
     final maps = await db.query(
       AppTables.categories,
-      where: '${AppTables.colCatIsDeleted} = 0',
-      orderBy: '${AppTables.colCatIsSystem} DESC, ${AppTables.colCatId} ASC',
+      where: whereClauses.join(' AND '),
+      whereArgs: whereArgs.isNotEmpty ? whereArgs : null,
+      orderBy: '${AppTables.colCatSortOrder} ASC, ${AppTables.colCatId} ASC',
+    );
+    return maps.map((e) => Category.fromMap(e)).toList();
+  }
+
+  Future<List<Category>> getAllCategoriesIncludingDeleted({String? kind}) async {
+    final db = await _db;
+    final where = kind != null ? '${AppTables.colCatKind} = ?' : null;
+    final whereArgs = kind != null ? [kind] : null;
+
+    final maps = await db.query(
+      AppTables.categories,
+      where: where,
+      whereArgs: whereArgs,
+      orderBy: '${AppTables.colCatSortOrder} ASC, ${AppTables.colCatId} ASC',
     );
     return maps.map((e) => Category.fromMap(e)).toList();
   }
@@ -24,7 +47,7 @@ class CategoryLocalDatasource {
     final db = await _db;
     final maps = await db.query(
       AppTables.categories,
-      where: '${AppTables.colCatId} = ? AND ${AppTables.colCatIsDeleted} = 0',
+      where: '${AppTables.colCatId} = ?',
       whereArgs: [id],
     );
     if (maps.isEmpty) return null;
@@ -36,63 +59,93 @@ class CategoryLocalDatasource {
     return await db.insert(AppTables.categories, category.toMap());
   }
 
-  Future<int> deleteCategory(int id) async {
+  Future<int> updateCategory(Category category) async {
+    final db = await _db;
+    return await db.update(
+      AppTables.categories,
+      category.toMap(),
+      where: '${AppTables.colCatId} = ?',
+      whereArgs: [category.id],
+    );
+  }
+
+  /// Soft deletes a category and removes its associated reminder slots in a single transaction.
+  /// Returns the IDs of the deleted reminder slots so their notification alarms can be canceled.
+  /// Transactions are NEVER rewritten or reassigned.
+  Future<List<int>> deleteCategory(int id) async {
     final db = await _db;
     return await db.transaction((txn) async {
-      final otherMaps = await txn.query(
-        AppTables.categories,
-        where: '${AppTables.colCatIsDeleted} = 0 AND ${AppTables.colCatId} != ?',
-        whereArgs: [id],
-        orderBy: "CASE WHEN ${AppTables.colCatName} = 'Other' THEN 0 ELSE 1 END, ${AppTables.colCatId} ASC",
-        limit: 1,
-      );
-
-      int fallbackCategoryId;
-      if (otherMaps.isNotEmpty) {
-        fallbackCategoryId = otherMaps.first[AppTables.colCatId] as int;
-      } else {
-        fallbackCategoryId = await txn.insert(AppTables.categories, {
-          AppTables.colCatName: 'Other',
-          AppTables.colCatEmoji: '🍿',
-          AppTables.colCatDefaultAmountCents: 0,
-          AppTables.colCatIsSystem: 1,
-          AppTables.colCatIsDeleted: 0,
-        });
-      }
-
+      // 1. Soft-delete category
       await txn.update(
-        AppTables.expenses,
-        {AppTables.colExpenseCategoryId: fallbackCategoryId},
-        where: '${AppTables.colExpenseCategoryId} = ?',
+        AppTables.categories,
+        {
+          AppTables.colCatDeletedAt: DateTime.now().toIso8601String(),
+        },
+        where: '${AppTables.colCatId} = ?',
         whereArgs: [id],
       );
 
+      // Find reminder slots to cancel notifications
+      final reminderRows = await txn.query(
+        AppTables.reminderSlots,
+        columns: [AppTables.colReminderId],
+        where: '${AppTables.colReminderCategoryId} = ?',
+        whereArgs: [id],
+      );
+      final reminderIds = reminderRows.map((r) => r[AppTables.colReminderId] as int).toList();
+
+      // 2. Remove reminder slots linked to this category
       await txn.delete(
         AppTables.reminderSlots,
         where: '${AppTables.colReminderCategoryId} = ?',
         whereArgs: [id],
       );
 
-      return await txn.update(
-        AppTables.categories,
-        {AppTables.colCatIsDeleted: 1},
-        where: '${AppTables.colCatId} = ?',
-        whereArgs: [id],
-      );
+      return reminderIds;
     });
   }
 
-  Future<bool> categoryHasExpenses(int id) async {
+  Future<int> countTransactionsForCategory(int id) async {
     final db = await _db;
     final result = await db.rawQuery(
       '''
       SELECT COUNT(*) as count
-      FROM ${AppTables.expenses}
-      WHERE ${AppTables.colExpenseCategoryId} = ? AND ${AppTables.colExpenseIsDeleted} = 0
+      FROM ${AppTables.transactions}
+      WHERE ${AppTables.colTxCategoryId} = ? 
+        AND ${AppTables.colTxDeletedAt} IS NULL
       ''',
       [id],
     );
-    final count = Sqflite.firstIntValue(result) ?? 0;
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  Future<int> countRemindersForCategory(int id) async {
+    final db = await _db;
+    final result = await db.rawQuery(
+      '''
+      SELECT COUNT(*) as count
+      FROM ${AppTables.reminderSlots}
+      WHERE ${AppTables.colReminderCategoryId} = ?
+      ''',
+      [id],
+    );
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  Future<void> restoreCategory(int id) async {
+    final db = await _db;
+    await db.update(
+      AppTables.categories,
+      {
+        AppTables.colCatDeletedAt: null,
+      },
+      where: '${AppTables.colCatId} = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<bool> categoryHasExpenses(int id) async {
+    final count = await countTransactionsForCategory(id);
     return count > 0;
   }
 }

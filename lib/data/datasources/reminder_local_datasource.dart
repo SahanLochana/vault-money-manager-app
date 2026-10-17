@@ -14,9 +14,20 @@ class ReminderLocalDatasource {
     final db = await _db;
     final maps = await db.query(
       AppTables.reminderSlots,
-      orderBy: '${AppTables.colReminderTime} ASC',
+      orderBy: '${AppTables.colReminderTime} ASC, ${AppTables.colReminderId} ASC',
     );
     return maps.map((e) => ReminderSlot.fromMap(e)).toList();
+  }
+
+  Future<ReminderSlot?> getReminderById(int id) async {
+    final db = await _db;
+    final maps = await db.query(
+      AppTables.reminderSlots,
+      where: '${AppTables.colReminderId} = ?',
+      whereArgs: [id],
+    );
+    if (maps.isEmpty) return null;
+    return ReminderSlot.fromMap(maps.first);
   }
 
   Future<int> insertReminder(ReminderSlot slot) async {

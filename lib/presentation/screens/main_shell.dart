@@ -42,7 +42,7 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     return BlocListener<ExpenseBloc, ExpenseState>(
       listener: (context, state) {
-        if (state is ExpenseLoaded) {
+        if (state is ExpenseLoaded && state.hasLedgerChanged) {
           context.read<WalletBloc>().add(const LoadWalletsEvent());
         }
       },

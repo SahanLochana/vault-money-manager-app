@@ -1,4 +1,4 @@
-import 'package:money_management_app/domain/models/expense.dart';
+import 'package:money_management_app/domain/models/ledger_transaction.dart';
 
 abstract class ExpenseEvent {
   const ExpenseEvent();
@@ -8,13 +8,21 @@ class LoadExpenses extends ExpenseEvent {
   const LoadExpenses();
 }
 
+class LoadTodayExpenses extends ExpenseEvent {
+  const LoadTodayExpenses();
+}
+
+class LoadMoreExpenses extends ExpenseEvent {
+  const LoadMoreExpenses();
+}
+
 class AddExpenseEvent extends ExpenseEvent {
-  final Expense expense;
+  final LedgerTransaction expense;
   const AddExpenseEvent(this.expense);
 }
 
 class UpdateExpenseEvent extends ExpenseEvent {
-  final Expense expense;
+  final LedgerTransaction expense;
   const UpdateExpenseEvent(this.expense);
 }
 

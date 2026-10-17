@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:money_management_app/domain/models/expense.dart';
+import 'package:intl/intl.dart';
+import 'package:money_management_app/domain/models/category.dart';
+import 'package:money_management_app/domain/models/ledger_transaction.dart';
 import 'package:money_management_app/domain/models/wallet.dart';
-import 'package:money_management_app/domain/models/wallet_transfer.dart';
 import 'package:money_management_app/presentation/blocs/expense/expense_bloc.dart';
 import 'package:money_management_app/presentation/blocs/expense/expense_event.dart';
 import 'package:money_management_app/presentation/blocs/expense/expense_state.dart';
-import 'package:money_management_app/presentation/blocs/wallet/wallet_bloc.dart';
-import 'package:money_management_app/presentation/blocs/wallet/wallet_event.dart';
 import 'package:money_management_app/presentation/screens/add_transaction_page.dart';
 import 'package:money_management_app/presentation/theme/app_colors.dart';
 import 'package:money_management_app/presentation/widgets/app_back_appbar.dart';
@@ -16,26 +15,6 @@ import 'package:money_management_app/presentation/widgets/app_snackbar.dart';
 import 'package:money_management_app/presentation/widgets/confirm_action_dialog.dart';
 import 'package:money_management_app/presentation/widgets/transaction_details_sheet.dart';
 import 'package:money_management_app/presentation/widgets/transactioncard.dart';
-import 'package:money_management_app/presentation/widgets/transfer_card.dart';
-import 'package:money_management_app/presentation/widgets/transfer_details_sheet.dart';
-
-sealed class HistoryActivityItem {
-  String get time;
-}
-
-class HistoryExpenseItem extends HistoryActivityItem {
-  final Expense expense;
-  HistoryExpenseItem(this.expense);
-  @override
-  String get time => expense.expenseTime;
-}
-
-class HistoryTransferItem extends HistoryActivityItem {
-  final WalletTransfer transfer;
-  HistoryTransferItem(this.transfer);
-  @override
-  String get time => transfer.transferTime;
-}
 
 class HistoryPage extends StatefulWidget {
   const HistoryPage({super.key});
@@ -46,73 +25,119 @@ class HistoryPage extends StatefulWidget {
 
 class _HistoryPageState extends State<HistoryPage> {
   String _selectedFilter = 'All';
+  late final ScrollController _scrollController;
 
-  void _deleteExpense(Expense exp) {
-    if (exp.id == null) return;
-    final expId = exp.id!;
-    context.read<ExpenseBloc>().add(DeleteExpenseEvent(expId));
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController()..addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.hasClients) {
+      final maxScroll = _scrollController.position.maxScrollExtent;
+      final currentScroll = _scrollController.position.pixels;
+      if (maxScroll - currentScroll <= 300) {
+        final state = context.read<ExpenseBloc>().state;
+        if (state is ExpenseLoaded && state.hasMoreHistory && !state.isLoadingMore) {
+          context.read<ExpenseBloc>().add(const LoadMoreExpenses());
+        }
+      }
+    }
+  }
+
+  void _deleteTransaction(LedgerTransaction tx) {
+    if (tx.id == null) return;
+    final txId = tx.id!;
+    context.read<ExpenseBloc>().add(DeleteExpenseEvent(txId));
+
+    String actionMsg;
+    if (tx is TransferTransaction) {
+      actionMsg = "Reverted transfer (${tx.formattedAmount})";
+    } else if (tx is IncomeTransaction) {
+      actionMsg = "Deleted income (${tx.formattedAmount})";
+    } else {
+      actionMsg = "Deleted expense (${tx.formattedAmount}) • Restored to wallet";
+    }
 
     AppSnackBar.show(
       context,
-      message: "Deleted expense (${exp.formattedAmount}) • Restored to wallet",
+      message: actionMsg,
       actionLabel: "Undo",
       durationSeconds: 3,
       onAction: () {
-        context.read<ExpenseBloc>().add(RestoreExpenseEvent(expId));
+        context.read<ExpenseBloc>().add(RestoreExpenseEvent(txId));
       },
     );
   }
 
-  void _deleteTransfer(WalletTransfer transfer, Wallet? fromWallet) {
-    if (transfer.id == null) return;
-    final transferId = transfer.id!;
-    context.read<WalletBloc>().add(DeleteWalletTransferEvent(transferId));
-    context.read<ExpenseBloc>().add(const LoadExpenses());
-
-    AppSnackBar.show(
-      context,
-      message: "Reverted transfer (${transfer.formattedAmount}) • Returned to ${fromWallet?.name ?? 'wallet'}",
-      actionLabel: "Undo",
-      durationSeconds: 3,
-      onAction: () {
-        context.read<WalletBloc>().add(RestoreWalletTransferEvent(transferId));
-        context.read<ExpenseBloc>().add(const LoadExpenses());
-      },
-    );
+  Future<bool> _confirmDeleteDialog(LedgerTransaction tx, Wallet? wallet, Wallet? toWallet) async {
+    if (tx is TransferTransaction) {
+      final fromName = wallet?.name ?? "source wallet";
+      final toName = toWallet?.name ?? "destination wallet";
+      return ConfirmActionDialog.show(
+        context,
+        title: "Revert Transfer?",
+        message:
+            "Are you sure you want to revert this transfer (${tx.formattedAmount})? This will return ${tx.formattedAmount} to $fromName and deduct it from $toName.",
+        confirmLabel: "Revert",
+        confirmColor: AppColors.expense,
+      );
+    } else if (tx is IncomeTransaction) {
+      return ConfirmActionDialog.show(
+        context,
+        title: "Delete Income?",
+        message:
+            "Are you sure you want to delete this income (${tx.formattedAmount})? This will deduct ${tx.formattedAmount} from ${wallet?.name ?? 'your wallet'}.",
+        confirmLabel: "Delete",
+        confirmColor: AppColors.expense,
+      );
+    } else {
+      return ConfirmActionDialog.show(
+        context,
+        title: "Delete Expense?",
+        message:
+            "Are you sure you want to delete this expense (${tx.formattedAmount})? This will restore ${tx.formattedAmount} back to your wallet balance.",
+        confirmLabel: "Delete",
+        confirmColor: AppColors.expense,
+      );
+    }
   }
 
-  Future<bool> _confirmDeleteExpenseDialog(Expense exp) async {
-    return ConfirmActionDialog.show(
-      context,
-      title: "Delete Expense?",
-      message:
-          "Are you sure you want to delete this expense (${exp.formattedAmount})? This will restore ${exp.formattedAmount} back to your wallet balance.",
-      confirmLabel: "Delete",
-      confirmColor: AppColors.expense,
-    );
-  }
-
-  Future<bool> _confirmDeleteTransferDialog(WalletTransfer transfer, Wallet? fromWallet, Wallet? toWallet) async {
-    final fromName = fromWallet?.name ?? "source wallet";
-    final toName = toWallet?.name ?? "destination wallet";
-
-    return ConfirmActionDialog.show(
-      context,
-      title: "Revert Transfer?",
-      message:
-          "Are you sure you want to revert this transfer (${transfer.formattedAmount})? This will return ${transfer.formattedAmount} to $fromName and deduct it from $toName.",
-      confirmLabel: "Revert",
-      confirmColor: AppColors.expense,
-    );
-  }
-
-  void _editExpense(Expense exp) {
+  void _editTransaction(LedgerTransaction tx) {
     Navigator.of(context).push(
       MaterialPageRoute(
         fullscreenDialog: true,
-        builder: (context) => AddTransactionPage(expenseToEdit: exp),
+        builder: (context) => AddTransactionPage(transactionToEdit: tx),
       ),
     );
+  }
+
+  String _formatDateHeader(String rawDate) {
+    try {
+      final parsed = DateTime.parse(rawDate);
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final yesterday = today.subtract(const Duration(days: 1));
+      final dateOnly = DateTime(parsed.year, parsed.month, parsed.day);
+
+      if (dateOnly == today) {
+        return "TODAY";
+      } else if (dateOnly == yesterday) {
+        return "YESTERDAY";
+      } else {
+        return DateFormat('EEE, d MMM yyyy').format(parsed).toUpperCase();
+      }
+    } catch (_) {
+      return rawDate.toUpperCase();
+    }
   }
 
   @override
@@ -140,100 +165,145 @@ class _HistoryPageState extends State<HistoryPage> {
             );
           }
 
-          Map<String, List<HistoryActivityItem>> grouped = {};
+          final Map<String, List<LedgerTransaction>> grouped = {};
+          bool isLoadingMore = false;
 
           if (state is ExpenseLoaded) {
+            isLoadingMore = state.isLoadingMore;
+
             final selectedWallet = _selectedFilter == 'All'
                 ? null
                 : state.wallets.where((w) => w.name == _selectedFilter).firstOrNull;
 
-            final allDates = <String>{
-              ...state.groupedExpenses.keys,
-              ...state.groupedTransfers.keys,
-            }.toList()
-              ..sort((a, b) => b.compareTo(a));
+            final filteredList = state.historyTransactions.where((tx) {
+              if (selectedWallet == null) return true;
+              if (tx.walletId == selectedWallet.id) return true;
+              if (tx is TransferTransaction && tx.toWalletId == selectedWallet.id) return true;
+              return false;
+            }).toList();
 
-            for (final date in allDates) {
-              final expensesForDate = state.groupedExpenses[date] ?? [];
-              final transfersForDate = state.groupedTransfers[date] ?? [];
-
-              final List<HistoryActivityItem> itemsForDate = [];
-
-              for (final exp in expensesForDate) {
-                if (selectedWallet == null || exp.walletId == selectedWallet.id) {
-                  itemsForDate.add(HistoryExpenseItem(exp));
-                }
-              }
-
-              for (final transfer in transfersForDate) {
-                if (selectedWallet == null ||
-                    transfer.fromWalletId == selectedWallet.id ||
-                    transfer.toWalletId == selectedWallet.id) {
-                  itemsForDate.add(HistoryTransferItem(transfer));
-                }
-              }
-
-              if (itemsForDate.isNotEmpty) {
-                itemsForDate.sort((a, b) => b.time.compareTo(a.time));
-                grouped[date] = itemsForDate;
-              }
+            for (final tx in filteredList) {
+              final date = tx.date;
+              grouped.putIfAbsent(date, () => []).add(tx);
             }
           }
 
+          final groupKeys = grouped.keys.toList();
+
           return CustomScrollView(
-            physics: const BouncingScrollPhysics(),
+            controller: _scrollController,
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
+            ),
             slivers: [
-              // Wallet Filter Chips
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                  child: Row(
-                    children: ['All', 'In Hand', 'In Bank'].map((filter) {
-                      final isSelected = _selectedFilter == filter;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(filter),
-                          selected: isSelected,
-                          onSelected: (selected) {
-                            if (selected) {
-                              setState(() => _selectedFilter = filter);
-                            }
-                          },
-                          backgroundColor: AppColors.surface,
-                          selectedColor: AppColors.primary.withValues(alpha: 0.2),
-                          labelStyle: TextStyle(
-                            color: isSelected ? AppColors.primary : AppColors.textSecondary,
-                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                            fontSize: 12,
+              // Wallet Horizontal Filter Chips
+              if (state is ExpenseLoaded && state.wallets.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          ChoiceChip(
+                            label: const Text('All'),
+                            selected: _selectedFilter == 'All',
+                            onSelected: (selected) {
+                              if (selected) {
+                                setState(() => _selectedFilter = 'All');
+                              }
+                            },
+                            selectedColor: AppColors.primary,
+                            backgroundColor: AppColors.surface,
+                            labelStyle: TextStyle(
+                              color: _selectedFilter == 'All'
+                                  ? Colors.black
+                                  : AppColors.textSecondary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              side: BorderSide(
+                                color: _selectedFilter == 'All'
+                                    ? AppColors.primary
+                                    : AppColors.surfaceBorder,
+                              ),
+                            ),
                           ),
-                          side: BorderSide(
-                            color: isSelected ? AppColors.primary : AppColors.surfaceBorder,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      );
-                    }).toList(),
+                          ...state.wallets.map((wallet) {
+                            final isSelected = _selectedFilter == wallet.name;
+                            return Padding(
+                              padding: const EdgeInsets.only(left: 8.0),
+                              child: ChoiceChip(
+                                label: Text("${wallet.emoji} ${wallet.name}"),
+                                selected: isSelected,
+                                onSelected: (selected) {
+                                  if (selected) {
+                                    setState(() => _selectedFilter = wallet.name);
+                                  }
+                                },
+                                selectedColor: AppColors.primary,
+                                backgroundColor: AppColors.surface,
+                                labelStyle: TextStyle(
+                                  color: isSelected ? Colors.black : AppColors.textSecondary,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  side: BorderSide(
+                                    color: isSelected
+                                        ? AppColors.primary
+                                        : AppColors.surfaceBorder,
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
 
-              // Grouped Transactions
-              if (grouped.isEmpty)
-                const SliverToBoxAdapter(
+              if (groupKeys.isEmpty)
+                SliverToBoxAdapter(
                   child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 60),
+                    padding: const EdgeInsets.symmetric(vertical: 48),
                     child: Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.history_rounded, size: 40, color: AppColors.textMuted),
-                          SizedBox(height: 12),
-                          Text(
-                            "No transactions found",
-                            style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: AppColors.surfaceBorder),
+                            ),
+                            child: const Icon(
+                              Icons.history_toggle_off_rounded,
+                              color: AppColors.textMuted,
+                              size: 36,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            "No transaction history",
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            "Your recorded transactions will show up here",
+                            style: TextStyle(
+                              color: AppColors.textMuted,
+                              fontSize: 12,
+                            ),
                           ),
                         ],
                       ),
@@ -245,8 +315,8 @@ class _HistoryPageState extends State<HistoryPage> {
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   sliver: SliverList(
                     delegate: SliverChildBuilderDelegate(
-                      (context, groupIndex) {
-                        final groupKey = grouped.keys.elementAt(groupIndex);
+                      (context, index) {
+                        final groupKey = groupKeys[index];
                         final groupItems = grouped[groupKey]!;
 
                         return Column(
@@ -255,7 +325,7 @@ class _HistoryPageState extends State<HistoryPage> {
                             Padding(
                               padding: const EdgeInsets.symmetric(vertical: 8.0),
                               child: Text(
-                                groupKey.toUpperCase(),
+                                _formatDateHeader(groupKey),
                                 style: const TextStyle(
                                   color: AppColors.textMuted,
                                   fontSize: 11,
@@ -265,145 +335,104 @@ class _HistoryPageState extends State<HistoryPage> {
                               ),
                             ),
                             ...groupItems.map(
-                              (item) {
-                                if (item is HistoryExpenseItem) {
-                                  final exp = item.expense;
-                                  final category = state is ExpenseLoaded
-                                      ? state.getCategory(exp.categoryId)
-                                      : null;
-                                  final wallet = state is ExpenseLoaded
-                                      ? state.getWallet(exp.walletId)
-                                      : null;
+                              (tx) {
+                                Category? category;
+                                Wallet? wallet;
+                                Wallet? toWallet;
 
-                                  return Dismissible(
-                                    key: Key('history_expense_${exp.id}'),
-                                    direction: DismissDirection.endToStart,
-                                    background: Container(
-                                      margin: const EdgeInsets.only(bottom: 10),
-                                      padding: const EdgeInsets.only(right: 20),
-                                      alignment: Alignment.centerRight,
-                                      decoration: BoxDecoration(
-                                        color: AppColors.expense.withValues(alpha: 0.9),
-                                        borderRadius: BorderRadius.circular(16),
-                                      ),
-                                      child: const Row(
-                                        mainAxisAlignment: MainAxisAlignment.end,
-                                        children: [
-                                          Text(
-                                            "Delete",
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                          SizedBox(width: 8),
-                                          Icon(
-                                            Icons.delete_outline_rounded,
-                                            color: Colors.white,
-                                            size: 22,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    confirmDismiss: (direction) => _confirmDeleteExpenseDialog(exp),
-                                    onDismissed: (direction) => _deleteExpense(exp),
-                                    child: TransactionCard(
-                                      expense: exp,
-                                      category: category,
-                                      wallet: wallet,
-                                      onTap: () {
-                                        TransactionDetailsSheet.show(
-                                          context,
-                                          expense: exp,
-                                          category: category,
-                                          wallet: wallet,
-                                          onDelete: () async {
-                                            final confirmed = await _confirmDeleteExpenseDialog(exp);
-                                            if (confirmed) {
-                                              _deleteExpense(exp);
-                                            }
-                                          },
-                                          onEdit: () => _editExpense(exp),
-                                        );
-                                      },
-                                    ),
-                                  );
-                                } else if (item is HistoryTransferItem) {
-                                  final transfer = item.transfer;
-                                  final fromWallet = state is ExpenseLoaded
-                                      ? state.getWallet(transfer.fromWalletId)
-                                      : null;
-                                  final toWallet = state is ExpenseLoaded
-                                      ? state.getWallet(transfer.toWalletId)
-                                      : null;
-
-                                  return Dismissible(
-                                    key: Key('history_transfer_${transfer.id}'),
-                                    direction: DismissDirection.endToStart,
-                                    background: Container(
-                                      margin: const EdgeInsets.only(bottom: 10),
-                                      padding: const EdgeInsets.only(right: 20),
-                                      alignment: Alignment.centerRight,
-                                      decoration: BoxDecoration(
-                                        color: AppColors.expense.withValues(alpha: 0.9),
-                                        borderRadius: BorderRadius.circular(16),
-                                      ),
-                                      child: const Row(
-                                        mainAxisAlignment: MainAxisAlignment.end,
-                                        children: [
-                                          Text(
-                                            "Revert",
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                          SizedBox(width: 8),
-                                          Icon(
-                                            Icons.delete_outline_rounded,
-                                            color: Colors.white,
-                                            size: 22,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    confirmDismiss: (direction) =>
-                                        _confirmDeleteTransferDialog(transfer, fromWallet, toWallet),
-                                    onDismissed: (direction) => _deleteTransfer(transfer, fromWallet),
-                                    child: TransferCard(
-                                      transfer: transfer,
-                                      fromWallet: fromWallet,
-                                      toWallet: toWallet,
-                                      onTap: () {
-                                        TransferDetailsSheet.show(
-                                          context,
-                                          transfer: transfer,
-                                          fromWallet: fromWallet,
-                                          toWallet: toWallet,
-                                          onDelete: () async {
-                                            final confirmed = await _confirmDeleteTransferDialog(
-                                              transfer,
-                                              fromWallet,
-                                              toWallet,
-                                            );
-                                            if (confirmed) {
-                                              _deleteTransfer(transfer, fromWallet);
-                                            }
-                                          },
-                                        );
-                                      },
-                                    ),
-                                  );
+                                if (state is ExpenseLoaded) {
+                                  if (tx.categoryId != null) {
+                                    category = state.getCategory(tx.categoryId!);
+                                  }
+                                  wallet = state.getWallet(tx.walletId);
+                                  final targetWalletId = tx.toWalletId;
+                                  if (targetWalletId != null) {
+                                    toWallet = state.getWallet(targetWalletId);
+                                  }
                                 }
-                                return const SizedBox.shrink();
+
+                                final isTransfer = tx is TransferTransaction;
+                                final deleteLabel = isTransfer ? "Revert" : "Delete";
+
+                                return Dismissible(
+                                  key: Key('history_tx_${tx.id}'),
+                                  direction: DismissDirection.endToStart,
+                                  background: Container(
+                                    margin: const EdgeInsets.only(bottom: 10),
+                                    padding: const EdgeInsets.only(right: 20),
+                                    alignment: Alignment.centerRight,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.expense.withValues(alpha: 0.9),
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          deleteLabel,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        const Icon(
+                                          Icons.delete_outline_rounded,
+                                          color: Colors.white,
+                                          size: 22,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  confirmDismiss: (direction) =>
+                                      _confirmDeleteDialog(tx, wallet, toWallet),
+                                  onDismissed: (direction) => _deleteTransaction(tx),
+                                  child: TransactionCard(
+                                    transaction: tx,
+                                    category: category,
+                                    wallet: wallet,
+                                    onTap: () {
+                                      TransactionDetailsSheet.show(
+                                        context,
+                                        transaction: tx,
+                                        category: category,
+                                        wallet: wallet,
+                                        onDelete: () async {
+                                          final confirmed = await _confirmDeleteDialog(
+                                              tx, wallet, toWallet);
+                                          if (confirmed && context.mounted) {
+                                            _deleteTransaction(tx);
+                                          }
+                                        },
+                                        onEdit: () => _editTransaction(tx),
+                                      );
+                                    },
+                                  ),
+                                );
                               },
                             ),
                           ],
                         );
                       },
-                      childCount: grouped.keys.length,
+                      childCount: groupKeys.length,
+                    ),
+                  ),
+                ),
+
+              if (isLoadingMore)
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                        ),
+                      ),
                     ),
                   ),
                 ),

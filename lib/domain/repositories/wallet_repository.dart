@@ -3,12 +3,15 @@ import 'package:money_management_app/domain/models/wallet_fund.dart';
 import 'package:money_management_app/domain/models/wallet_transfer.dart';
 
 abstract class WalletRepository {
-  Future<List<Wallet>> getAllWallets();
+  Future<List<Wallet>> getAllWallets({bool includeArchived = false});
   Future<Wallet?> getWalletById(int id);
+  Future<int> addWallet(Wallet wallet);
+  Future<void> updateWallet(Wallet wallet);
   Future<int> addFunds(WalletFund fund);
   Future<List<WalletFund>> getFundsForWallet(int walletId);
   Future<Map<int, double>> getAllWalletFundTotals();
   Future<void> deleteFund(int id);
+  Future<void> restoreFund(int id);
 
   // Transfers
   Future<int> addTransfer(WalletTransfer transfer);

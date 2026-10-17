@@ -13,7 +13,17 @@ class AddCategoryEvent extends CategoryEvent {
   const AddCategoryEvent(this.category);
 }
 
+class UpdateCategoryEvent extends CategoryEvent {
+  final Category category;
+  const UpdateCategoryEvent(this.category);
+}
+
 class DeleteCategoryEvent extends CategoryEvent {
   final int id;
   const DeleteCategoryEvent(this.id);
+}
+
+class RestoreCategoryEvent extends CategoryEvent {
+  final int id;
+  const RestoreCategoryEvent(this.id);
 }

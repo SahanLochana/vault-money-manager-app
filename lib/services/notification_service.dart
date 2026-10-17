@@ -363,8 +363,9 @@ class NotificationService {
 
   Future<void> scheduleDailyReminder(
     ReminderSlot slot,
-    String categoryName,
-  ) async {
+    String categoryName, {
+    int? effectiveAmountCents,
+  }) async {
     if (!slot.isActive || slot.id == null) {
       _log('scheduleDailyReminder skipped (isActive=${slot.isActive}, id=${slot.id})');
       return;
@@ -425,8 +426,10 @@ class NotificationService {
         'offsetDiff=${dartLocalNow.timeZoneOffset.inMinutes - tzLocalNow.timeZoneOffset.inMinutes}min',
       );
 
-      final String amountStr = slot.defaultAmount > 0
-          ? 'Rs ${slot.defaultAmount.toStringAsFixed(0)}'
+      final int resolvedAmountCents =
+          effectiveAmountCents ?? slot.defaultAmountCents ?? 0;
+      final String amountStr = resolvedAmountCents > 0
+          ? 'Rs ${(resolvedAmountCents / 100).toStringAsFixed(0)}'
           : '';
       final String notificationTitle = '$categoryName Reminder';
       final String notificationBody = amountStr.isNotEmpty
@@ -460,7 +463,7 @@ class NotificationService {
       );
       final notificationDetails = NotificationDetails(android: androidDetails);
       final payload =
-          '${slot.categoryId}|${slot.defaultAmountCents}|${slot.id}';
+          '${slot.categoryId}|$resolvedAmountCents|${slot.id}';
 
       bool scheduled = false;
 
@@ -682,14 +685,16 @@ class NotificationService {
 
   Future<void> rescheduleAllReminders(
     List<ReminderSlot> slots,
-    Map<int, String> categoryNames,
-  ) async {
+    Map<int, String> categoryNames, {
+    Map<int, int?>? categoryDefaultAmounts,
+  }) async {
     _log('Rescheduling all ${slots.length} reminders...');
     int scheduledCount = 0;
     for (final slot in slots) {
       if (slot.isActive && slot.id != null) {
         final catName = categoryNames[slot.categoryId] ?? 'Expense Reminder';
-        await scheduleDailyReminder(slot, catName);
+        final effectiveAmount = slot.effectiveAmountCents(categoryDefaultAmounts?[slot.categoryId]);
+        await scheduleDailyReminder(slot, catName, effectiveAmountCents: effectiveAmount);
         scheduledCount++;
       }
     }
@@ -706,8 +711,16 @@ class NotificationService {
     }
   }
 
-  Future<void> scheduleReminder(ReminderSlot slot, String categoryName) =>
-      scheduleDailyReminder(slot, categoryName);
+  Future<void> scheduleReminder(
+    ReminderSlot slot,
+    String categoryName, {
+    int? effectiveAmountCents,
+  }) =>
+      scheduleDailyReminder(
+        slot,
+        categoryName,
+        effectiveAmountCents: effectiveAmountCents,
+      );
 
   Future<void> cancelReminder(int id) async {
     try {

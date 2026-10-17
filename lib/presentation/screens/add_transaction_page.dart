@@ -2,16 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:money_management_app/domain/models/category.dart';
-import 'package:money_management_app/domain/models/expense.dart';
-import 'package:money_management_app/domain/models/income_category.dart';
+import 'package:money_management_app/domain/models/ledger_transaction.dart';
 import 'package:money_management_app/domain/models/wallet.dart';
-import 'package:money_management_app/domain/models/wallet_fund.dart';
-import 'package:money_management_app/domain/models/wallet_transfer.dart';
 import 'package:money_management_app/presentation/blocs/expense/expense_bloc.dart';
 import 'package:money_management_app/presentation/blocs/expense/expense_event.dart';
 import 'package:money_management_app/presentation/blocs/expense/expense_state.dart';
-import 'package:money_management_app/presentation/blocs/wallet/wallet_bloc.dart';
-import 'package:money_management_app/presentation/blocs/wallet/wallet_event.dart';
 import 'package:money_management_app/presentation/screens/main_shell.dart';
 import 'package:money_management_app/presentation/screens/manage_categories_page.dart';
 import 'package:money_management_app/presentation/theme/app_colors.dart';
@@ -25,18 +20,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 enum TransactionMode { expense, income, transfer }
 
 class AddTransactionPage extends StatefulWidget {
-  final Expense? expenseToEdit;
+  final LedgerTransaction? transactionToEdit;
   final TransactionMode initialMode;
   final int? initialCategoryId;
   final double? initialAmount;
 
   const AddTransactionPage({
     super.key,
-    this.expenseToEdit,
+    LedgerTransaction? transactionToEdit,
+    LedgerTransaction? expenseToEdit,
     this.initialMode = TransactionMode.expense,
     this.initialCategoryId,
     this.initialAmount,
-  });
+  }) : transactionToEdit = transactionToEdit ?? expenseToEdit;
 
   @override
   State<AddTransactionPage> createState() => _AddTransactionPageState();
@@ -51,34 +47,38 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
   late TimeOfDay _selectedTime;
 
   Category? _selectedCategory;
+  bool _categoryExplicitlyCleared = false;
   Wallet? _selectedWallet;
-
-  // For Income Mode
-  List<IncomeCategory> _incomeCategories = [];
-  IncomeCategory? _selectedIncomeCategory;
 
   // For Transfer Mode
   Wallet? _fromWallet;
   Wallet? _toWallet;
 
-  bool get isEditMode => widget.expenseToEdit != null;
+  bool get isEditMode => widget.transactionToEdit != null;
 
   @override
   void initState() {
     super.initState();
     _mode = widget.initialMode;
-    final exp = widget.expenseToEdit;
+    final tx = widget.transactionToEdit;
 
-    if (exp != null) {
-      _amountController.text = exp.amount.toStringAsFixed(0);
-      if (exp.note != null) _noteController.text = exp.note!;
+    if (tx != null) {
+      if (tx.isExpense) {
+        _mode = TransactionMode.expense;
+      } else if (tx.isIncome) {
+        _mode = TransactionMode.income;
+      } else if (tx.isTransfer) {
+        _mode = TransactionMode.transfer;
+      }
+      _amountController.text = tx.amount.toStringAsFixed(0);
+      if (tx.note != null) _noteController.text = tx.note!;
       try {
-        _selectedDate = DateTime.parse(exp.expenseDate);
+        _selectedDate = DateTime.parse(tx.occurredDate);
       } catch (_) {
         _selectedDate = DateTime.now();
       }
       try {
-        final parts = exp.expenseTime.split(':');
+        final parts = tx.occurredTime.split(':');
         _selectedTime = TimeOfDay(
           hour: int.parse(parts[0]),
           minute: int.parse(parts[1]),
@@ -94,16 +94,9 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
       _selectedTime = TimeOfDay.now();
       _loadLastUsedWallet();
     }
-    _loadIncomeCategories();
-  }
-
-  Future<void> _loadIncomeCategories() async {
-    final cats = await IncomeCategory.loadAll();
-    if (mounted) {
-      setState(() {
-        _incomeCategories = cats;
-        _selectedIncomeCategory ??= cats.firstOrNull;
-      });
+    final expenseBloc = context.read<ExpenseBloc>();
+    if (expenseBloc.state is! ExpenseLoaded) {
+      expenseBloc.add(const LoadExpenses());
     }
   }
 
@@ -140,7 +133,7 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
   }
 
   String get _pageTitle {
-    if (isEditMode) return 'Edit Expense';
+    if (isEditMode) return 'Edit Transaction';
     switch (_mode) {
       case TransactionMode.expense:
         return 'Add Expense';
@@ -204,22 +197,15 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
       return;
     }
 
-    final category = _selectedCategory ?? categories.firstOrNull;
-    if (category == null && _mode == TransactionMode.expense) {
-      AppSnackBar.show(context, message: "Please select a category", isError: true);
-      return;
-    }
-
     final wallet = _selectedWallet ?? wallets.firstOrNull;
     if (wallet == null && _mode != TransactionMode.transfer) {
       AppSnackBar.show(context, message: "Please select a wallet", isError: true);
       return;
     }
 
-    // Save last used wallet to preferences
-    if (wallet?.id != null) {
+    if (wallet != null) {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt('last_used_wallet_id', wallet!.id);
+      await prefs.setInt('last_used_wallet_id', wallet.id);
     }
 
     if (!mounted) return;
@@ -231,21 +217,29 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
     final note = _noteController.text.trim().isNotEmpty ? _noteController.text.trim() : null;
 
     if (_mode == TransactionMode.income) {
-      final cat = _selectedIncomeCategory ?? _incomeCategories.firstOrNull;
-      final catName = cat?.name ?? "Income";
-      final fundNote = note != null ? "$catName • $note" : catName;
-
-      final fund = WalletFund(
+      final categoryId = _selectedCategory?.id;
+      final incomeTx = IncomeTransaction(
+        id: isEditMode ? widget.transactionToEdit?.id : null,
         walletId: wallet!.id,
+        categoryId: categoryId,
         amountCents: amountCents,
-        note: fundNote,
-        createdAt: DateTime.now().toIso8601String(),
+        occurredDate: dateStr,
+        occurredTime: timeStr,
+        note: note,
+        createdAt: isEditMode
+            ? (widget.transactionToEdit?.createdAt ?? DateTime.now().toIso8601String())
+            : DateTime.now().toIso8601String(),
+        updatedAt: DateTime.now().toIso8601String(),
       );
 
-      context.read<WalletBloc>().add(AddWalletFundsEvent(fund));
-      context.read<ExpenseBloc>().add(const LoadExpenses());
+      if (isEditMode) {
+        context.read<ExpenseBloc>().add(UpdateExpenseEvent(incomeTx));
+      } else {
+        context.read<ExpenseBloc>().add(AddExpenseEvent(incomeTx));
+      }
 
       if (mounted) {
+        final catName = _selectedCategory?.name ?? "Uncategorized";
         AppSnackBar.show(
           context,
           message: "Added Rs ${parsedAmount.toStringAsFixed(0)} ($catName) to ${wallet.name}",
@@ -273,18 +267,25 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
         return;
       }
 
-      final transfer = WalletTransfer(
-        fromWalletId: from.id,
+      final transferTx = TransferTransaction(
+        id: isEditMode ? widget.transactionToEdit?.id : null,
+        walletId: from.id,
         toWalletId: to.id,
         amountCents: amountCents,
-        transferDate: dateStr,
-        transferTime: timeStr,
+        occurredDate: dateStr,
+        occurredTime: timeStr,
         note: note,
-        createdAt: DateTime.now().toIso8601String(),
+        createdAt: isEditMode
+            ? (widget.transactionToEdit?.createdAt ?? DateTime.now().toIso8601String())
+            : DateTime.now().toIso8601String(),
+        updatedAt: DateTime.now().toIso8601String(),
       );
 
-      context.read<WalletBloc>().add(AddWalletTransferEvent(transfer));
-      context.read<ExpenseBloc>().add(const LoadExpenses());
+      if (isEditMode) {
+        context.read<ExpenseBloc>().add(UpdateExpenseEvent(transferTx));
+      } else {
+        context.read<ExpenseBloc>().add(AddExpenseEvent(transferTx));
+      }
 
       if (mounted) {
         AppSnackBar.show(
@@ -296,29 +297,26 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
       return;
     }
 
+    // Expense Mode
+    final categoryId = _selectedCategory?.id;
+    final expenseTx = ExpenseTransaction(
+      id: isEditMode ? widget.transactionToEdit?.id : null,
+      categoryId: categoryId,
+      amountCents: amountCents,
+      walletId: wallet!.id,
+      occurredDate: dateStr,
+      occurredTime: timeStr,
+      note: note,
+      createdAt: isEditMode
+          ? (widget.transactionToEdit?.createdAt ?? DateTime.now().toIso8601String())
+          : DateTime.now().toIso8601String(),
+      updatedAt: DateTime.now().toIso8601String(),
+    );
+
     if (isEditMode) {
-      final updated = widget.expenseToEdit!.copyWith(
-        categoryId: category!.id ?? 1,
-        amountCents: amountCents,
-        walletId: wallet!.id,
-        expenseDate: dateStr,
-        expenseTime: timeStr,
-        note: note,
-        updatedAt: DateTime.now(),
-      );
-      context.read<ExpenseBloc>().add(UpdateExpenseEvent(updated));
+      context.read<ExpenseBloc>().add(UpdateExpenseEvent(expenseTx));
     } else {
-      final newExpense = Expense(
-        categoryId: category?.id ?? 1,
-        amountCents: amountCents,
-        walletId: wallet?.id ?? 1,
-        expenseDate: dateStr,
-        expenseTime: timeStr,
-        note: note,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      );
-      context.read<ExpenseBloc>().add(AddExpenseEvent(newExpense));
+      context.read<ExpenseBloc>().add(AddExpenseEvent(expenseTx));
     }
 
     if (mounted) {
@@ -340,32 +338,56 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
     }
   }
 
+  Future<void> _openManageCategories(CategoryTab tab) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ManageCategoriesPage(initialTab: tab),
+      ),
+    );
+    if (mounted) {
+      context.read<ExpenseBloc>().add(const LoadExpenses());
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<ExpenseBloc, ExpenseState>(
       builder: (context, state) {
-        List<Category> categories = [];
+        List<Category> allCategories = [];
         List<Wallet> wallets = [];
 
         if (state is ExpenseLoaded) {
-          categories = state.categories;
+          allCategories = state.categories;
           wallets = state.wallets;
 
-          if (isEditMode && _selectedCategory == null) {
-            _selectedCategory = state.getCategory(widget.expenseToEdit!.categoryId);
-          } else if (_selectedCategory == null && widget.initialCategoryId != null) {
+          final currentTx = widget.transactionToEdit;
+          if (isEditMode && _selectedCategory == null && !_categoryExplicitlyCleared) {
+            if (currentTx?.categoryId != null) {
+              _selectedCategory = state.getCategory(currentTx!.categoryId!);
+            }
+          } else if (_selectedCategory == null && widget.initialCategoryId != null && !_categoryExplicitlyCleared) {
             _selectedCategory = state.getCategory(widget.initialCategoryId!);
+            if (_selectedCategory != null &&
+                _selectedCategory!.defaultAmountCents > 0 &&
+                _amountController.text.isEmpty) {
+              _amountController.text = _selectedCategory!.defaultAmount.toStringAsFixed(0);
+            }
           }
-          if (isEditMode && _selectedWallet == null) {
-            _selectedWallet = state.getWallet(widget.expenseToEdit!.walletId);
+
+          if (isEditMode && _selectedWallet == null && currentTx != null) {
+            _selectedWallet = state.getWallet(currentTx.walletId);
           }
-          _selectedCategory ??= categories.firstOrNull;
           _selectedWallet ??= wallets.firstOrNull;
           _fromWallet ??= wallets.where((w) => w.name == 'In Bank').firstOrNull ??
               (wallets.length > 1 ? wallets[1] : wallets.firstOrNull);
           _toWallet ??= wallets.where((w) => w.name == 'In Hand').firstOrNull ??
               wallets.firstOrNull;
         }
+
+        final filteredCategories = _mode == TransactionMode.income
+            ? allCategories.where((c) => c.kind == CategoryKind.income).toList()
+            : allCategories.where((c) => c.kind == CategoryKind.expense).toList();
 
         return PopScope(
           canPop: false,
@@ -381,64 +403,66 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
               onLeadingTap: _handleBackNavigation,
               titleFontWeight: FontWeight.w700,
             ),
-          body: SafeArea(
-            child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Segmented Mode Selector (hide during Edit)
-                  if (!isEditMode) ...[
-                    _buildModeSelector(),
+            body: SafeArea(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Segmented Mode Selector (hide during Edit)
+                    if (!isEditMode) ...[
+                      _buildModeSelector(),
+                      const SizedBox(height: 24),
+                    ],
+
+                    // Large Amount Input
+                    _buildAmountInput(),
+                    const SizedBox(height: 24),
+
+                    // Mode Specific Content
+                    if (_mode == TransactionMode.transfer) ...[
+                      _buildTransferWalletsSection(wallets),
+                      const SizedBox(height: 20),
+                    ] else ...[
+                      // Categories Section with Right Kind + Uncategorized Option
+                      _buildCategorySection(
+                        filteredCategories,
+                        tab: _mode == TransactionMode.income
+                            ? CategoryTab.income
+                            : CategoryTab.expense,
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Wallet Selection
+                      _buildWalletSection(
+                        wallets,
+                        title: _mode == TransactionMode.income
+                            ? "Deposit Into Wallet"
+                            : "Payment Wallet",
+                      ),
+                      const SizedBox(height: 20),
+                    ],
+
+                    // Date & Time Row
+                    _buildDateTimeSection(),
+                    const SizedBox(height: 20),
+
+                    // Optional Note Input
+                    _buildNoteInput(),
+                    const SizedBox(height: 32),
+
+                    // Save Button
+                    _buildSaveButton(allCategories, wallets),
                     const SizedBox(height: 24),
                   ],
-
-                  // Large Amount Input
-                  _buildAmountInput(),
-                  const SizedBox(height: 24),
-
-                  // Mode Specific Content
-                  if (_mode == TransactionMode.transfer) ...[
-                    _buildTransferWalletsSection(wallets),
-                    const SizedBox(height: 20),
-                  ] else if (_mode == TransactionMode.income) ...[
-                    // Income Categories
-                    _buildIncomeCategorySection(),
-                    const SizedBox(height: 20),
-
-                    // Wallet Selection
-                    _buildWalletSection(wallets, title: "Deposit Into Wallet"),
-                    const SizedBox(height: 20),
-                  ] else ...[
-                    // Expense Categories
-                    _buildCategorySection(categories),
-                    const SizedBox(height: 20),
-
-                    // Wallet Selection
-                    _buildWalletSection(wallets, title: "Payment Wallet"),
-                    const SizedBox(height: 20),
-                  ],
-
-                  // Date & Time Row
-                  _buildDateTimeSection(),
-                  const SizedBox(height: 20),
-
-                  // Optional Note Input
-                  _buildNoteInput(),
-                  const SizedBox(height: 32),
-
-                  // Save Button
-                  _buildSaveButton(categories, wallets),
-                  const SizedBox(height: 24),
-                ],
+                ),
               ),
             ),
           ),
-        ),
-      );
-    },
-  );
+        );
+      },
+    );
   }
 
   Widget _buildModeSelector() {
@@ -466,6 +490,8 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
         onTap: () {
           setState(() {
             _mode = mode;
+            _selectedCategory = null;
+            _categoryExplicitlyCleared = false;
           });
         },
         child: AnimatedContainer(
@@ -554,60 +580,33 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
     );
   }
 
-  Future<void> _openManageCategories(CategoryTab tab) async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ManageCategoriesPage(initialTab: tab),
-      ),
-    );
-    // Refresh expense categories from DB via bloc
-    if (mounted) {
-      context.read<ExpenseBloc>().add(const LoadExpenses());
-    }
-    await _loadIncomeCategories();
-    if (mounted) {
-      final state = context.read<ExpenseBloc>().state;
-      setState(() {
-        if (_selectedIncomeCategory != null &&
-            !_incomeCategories.any((c) => c.id == _selectedIncomeCategory!.id)) {
-          _selectedIncomeCategory = _incomeCategories.firstOrNull;
-        }
-        // Reset selected expense category if it was deleted
-        if (state is ExpenseLoaded &&
-            _selectedCategory != null &&
-            !state.categories.any((c) => c.id == _selectedCategory!.id)) {
-          _selectedCategory = state.categories.firstOrNull;
-        }
-      });
-    }
-  }
+  Widget _buildCategorySection(List<Category> categories, {required CategoryTab tab}) {
+    final isNoneSelected = _selectedCategory == null;
 
-  Widget _buildCategorySection(List<Category> categories) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
-              "Category",
-              style: TextStyle(
+            Text(
+              tab == CategoryTab.income ? "Income Source" : "Category",
+              style: const TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
               ),
             ),
             GestureDetector(
-              onTap: () => _openManageCategories(CategoryTab.expense),
-              child: const Row(
+              onTap: () => _openManageCategories(tab),
+              child: Row(
                 children: [
-                  Icon(Icons.tune_rounded, size: 14, color: AppColors.primary),
-                  SizedBox(width: 4),
+                  Icon(Icons.tune_rounded, size: 14, color: _accentColor),
+                  const SizedBox(width: 4),
                   Text(
                     "Manage",
                     style: TextStyle(
-                      color: AppColors.primary,
+                      color: _accentColor,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -622,6 +621,47 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
           spacing: 10,
           runSpacing: 10,
           children: [
+            // Always allow "Uncategorized" (NULL category_id)
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _selectedCategory = null;
+                  _categoryExplicitlyCleared = true;
+                });
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: isNoneSelected
+                      ? _accentColor.withValues(alpha: 0.18)
+                      : AppColors.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: isNoneSelected
+                        ? _accentColor.withValues(alpha: 0.6)
+                        : AppColors.surfaceBorder,
+                    width: isNoneSelected ? 1.5 : 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text("❓", style: TextStyle(fontSize: 16)),
+                    const SizedBox(width: 8),
+                    Text(
+                      "Uncategorized",
+                      style: TextStyle(
+                        color: isNoneSelected ? _accentColor : AppColors.textPrimary,
+                        fontSize: 13,
+                        fontWeight: isNoneSelected ? FontWeight.w700 : FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
             ...categories.map((cat) {
               final isSelected = _selectedCategory?.id == cat.id;
               final catColor = CategoryUIHelper.getColor(cat);
@@ -629,101 +669,11 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
                 onTap: () {
                   setState(() {
                     _selectedCategory = cat;
-                    if (!isEditMode &&
-                        cat.defaultAmountCents > 0 &&
-                        _amountController.text.isEmpty) {
+                    _categoryExplicitlyCleared = false;
+                    // Product rule: Category default amount prefills the amount input (user can overwrite)
+                    if (cat.defaultAmountCents > 0) {
                       _amountController.text = cat.defaultAmount.toStringAsFixed(0);
                     }
-                  });
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? catColor.withValues(alpha: 0.18)
-                        : AppColors.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: isSelected
-                          ? catColor.withValues(alpha: 0.6)
-                          : AppColors.surfaceBorder,
-                      width: isSelected ? 1.5 : 1,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        cat.emoji,
-                        style: const TextStyle(fontSize: 16),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        cat.name,
-                        style: TextStyle(
-                          color: isSelected ? catColor : AppColors.textPrimary,
-                          fontSize: 13,
-                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildIncomeCategorySection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              "Income Source",
-              style: TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            GestureDetector(
-              onTap: () => _openManageCategories(CategoryTab.income),
-              child: const Row(
-                children: [
-                  Icon(Icons.tune_rounded, size: 14, color: AppColors.income),
-                  SizedBox(width: 4),
-                  Text(
-                    "Manage",
-                    style: TextStyle(
-                      color: AppColors.income,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            ..._incomeCategories.map((cat) {
-              final isSelected = _selectedIncomeCategory?.id == cat.id;
-              const catColor = AppColors.income;
-              return GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _selectedIncomeCategory = cat;
                   });
                 },
                 child: AnimatedContainer(
@@ -1064,10 +1014,10 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
         ),
         child: Text(
           isEditMode
-              ? "Update Expense"
+              ? "Update Transaction"
               : _mode == TransactionMode.transfer
                   ? "Complete Transfer"
-                  : "Save Expense",
+                  : (_mode == TransactionMode.income ? "Save Income" : "Save Expense"),
           style: const TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w800,

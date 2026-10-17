@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:money_management_app/domain/models/category.dart';
-import 'package:money_management_app/domain/models/expense.dart';
+import 'package:money_management_app/domain/models/ledger_transaction.dart';
 import 'package:money_management_app/domain/models/wallet.dart';
 import 'package:money_management_app/presentation/theme/app_colors.dart';
 import 'package:money_management_app/presentation/theme/category_ui_helper.dart';
 
 class TransactionDetailsSheet extends StatelessWidget {
-  final Expense expense;
+  final LedgerTransaction transaction;
   final Category? category;
   final Wallet? wallet;
   final VoidCallback? onDelete;
@@ -14,7 +14,7 @@ class TransactionDetailsSheet extends StatelessWidget {
 
   const TransactionDetailsSheet({
     super.key,
-    required this.expense,
+    required this.transaction,
     this.category,
     this.wallet,
     this.onDelete,
@@ -23,7 +23,7 @@ class TransactionDetailsSheet extends StatelessWidget {
 
   static Future<void> show(
     BuildContext context, {
-    required Expense expense,
+    required LedgerTransaction transaction,
     Category? category,
     Wallet? wallet,
     VoidCallback? onDelete,
@@ -34,7 +34,7 @@ class TransactionDetailsSheet extends StatelessWidget {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (context) => TransactionDetailsSheet(
-        expense: expense,
+        transaction: transaction,
         category: category,
         wallet: wallet,
         onDelete: onDelete,
@@ -45,10 +45,15 @@ class TransactionDetailsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final catColor = CategoryUIHelper.getColor(category);
-    final catIcon = CategoryUIHelper.getIcon(category);
-    final categoryName = category?.name ?? 'Expense';
-    final walletName = wallet?.name ?? 'Wallet';
+    final isIncome = transaction.isIncome;
+    final catColor = CategoryUIHelper.getColorForId(transaction.categoryId);
+    final categoryName = category?.name ??
+        transaction.categoryName ??
+        (transaction.categoryId == null ? 'Uncategorized' : (isIncome ? 'Income' : 'Expense'));
+    final categoryEmoji = category?.emoji ??
+        transaction.categoryEmoji ??
+        (transaction.categoryId == null ? '❓' : (isIncome ? '💰' : '🏷️'));
+    final walletName = wallet?.name ?? transaction.walletName ?? 'Wallet';
 
     return Container(
       decoration: const BoxDecoration(
@@ -86,24 +91,18 @@ class TransactionDetailsSheet extends StatelessWidget {
               ),
             ),
             child: Center(
-              child: category?.emoji != null && category!.emoji.isNotEmpty
-                  ? Text(
-                      category!.emoji,
-                      style: const TextStyle(fontSize: 28),
-                    )
-                  : Icon(
-                      catIcon,
-                      color: catColor,
-                      size: 32,
-                    ),
+              child: Text(
+                categoryEmoji,
+                style: const TextStyle(fontSize: 28),
+              ),
             ),
           ),
           const SizedBox(height: 12),
 
           // Title
           Text(
-            expense.note != null && expense.note!.isNotEmpty
-                ? expense.note!
+            transaction.note != null && transaction.note!.isNotEmpty
+                ? transaction.note!
                 : categoryName,
             textAlign: TextAlign.center,
             style: const TextStyle(
@@ -116,9 +115,9 @@ class TransactionDetailsSheet extends StatelessWidget {
 
           // Large Amount
           Text(
-            '-${expense.formattedAmount}',
-            style: const TextStyle(
-              color: AppColors.expense,
+            isIncome ? '+${transaction.formattedAmount}' : '-${transaction.formattedAmount}',
+            style: TextStyle(
+              color: isIncome ? AppColors.income : AppColors.expense,
               fontSize: 28,
               fontWeight: FontWeight.w800,
               letterSpacing: -0.5,
@@ -138,14 +137,13 @@ class TransactionDetailsSheet extends StatelessWidget {
             child: Column(
               children: [
                 _buildDetailRow(
-                  label: "Category",
+                  label: isIncome ? "Income Source" : "Category",
                   value: categoryName,
-                  icon: catIcon,
-                  iconColor: catColor,
+                  emoji: categoryEmoji,
                 ),
                 _buildDivider(),
                 _buildDetailRow(
-                  label: "Wallet",
+                  label: isIncome ? "Deposit Wallet" : "Payment Wallet",
                   value: walletName,
                   icon: walletName == 'In Bank'
                       ? Icons.account_balance_rounded
@@ -155,15 +153,15 @@ class TransactionDetailsSheet extends StatelessWidget {
                 _buildDivider(),
                 _buildDetailRow(
                   label: "Date & Time",
-                  value: "${expense.expenseDate} • ${expense.expenseTime}",
+                  value: "${transaction.occurredDate} • ${transaction.occurredTime}",
                   icon: Icons.access_time_rounded,
                   iconColor: AppColors.textSecondary,
                 ),
-                if (expense.note != null && expense.note!.isNotEmpty) ...[
+                if (transaction.note != null && transaction.note!.isNotEmpty) ...[
                   _buildDivider(),
                   _buildDetailRow(
                     label: "Note",
-                    value: expense.note!,
+                    value: transaction.note!,
                     icon: Icons.notes_rounded,
                     iconColor: AppColors.warning,
                   ),
@@ -234,30 +232,38 @@ class TransactionDetailsSheet extends StatelessWidget {
   Widget _buildDetailRow({
     required String label,
     required String value,
-    required IconData icon,
-    required Color iconColor,
+    String? emoji,
+    IconData? icon,
+    Color? iconColor,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Icon(icon, color: iconColor, size: 18),
-          const SizedBox(width: 12),
-          Text(
-            label,
-            style: const TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
+          Row(
+            children: [
+              if (emoji != null)
+                Text(emoji, style: const TextStyle(fontSize: 16))
+              else if (icon != null)
+                Icon(icon, size: 16, color: iconColor ?? AppColors.textSecondary),
+              const SizedBox(width: 10),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
           ),
-          const Spacer(),
           Text(
             value,
             style: const TextStyle(
               color: AppColors.textPrimary,
               fontSize: 13,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -269,7 +275,7 @@ class TransactionDetailsSheet extends StatelessWidget {
     return Divider(
       height: 1,
       thickness: 1,
-      color: AppColors.surfaceBorder.withValues(alpha: 0.4),
+      color: Colors.white.withValues(alpha: 0.05),
       indent: 16,
       endIndent: 16,
     );

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:money_management_app/domain/models/wallet.dart';
 import 'package:money_management_app/domain/models/wallet_fund.dart';
+import 'package:money_management_app/presentation/blocs/expense/expense_bloc.dart';
+import 'package:money_management_app/presentation/blocs/expense/expense_event.dart';
 import 'package:money_management_app/presentation/blocs/wallet/wallet_bloc.dart';
 import 'package:money_management_app/presentation/blocs/wallet/wallet_event.dart';
 import 'package:money_management_app/presentation/blocs/wallet/wallet_state.dart';
@@ -12,6 +14,7 @@ import 'package:money_management_app/presentation/widgets/app_loading_indicator.
 import 'package:money_management_app/presentation/widgets/app_snackbar.dart';
 import 'package:money_management_app/presentation/widgets/app_text_field.dart';
 import 'package:money_management_app/presentation/widgets/emoji_avatar.dart';
+import 'package:money_management_app/presentation/widgets/emoji_picker_grid.dart';
 import 'package:money_management_app/presentation/widgets/labeled_field.dart';
 import 'package:money_management_app/presentation/widgets/pill_action_button.dart';
 
@@ -23,10 +26,86 @@ class ManageWalletsPage extends StatefulWidget {
 }
 
 class _ManageWalletsPageState extends State<ManageWalletsPage> {
+  static const List<String> _walletEmojis = [
+    '💵', '💳', '🏦', '💰', '👛', '🪙', '💼', '🏷️',
+  ];
+
   @override
   void initState() {
     super.initState();
     context.read<WalletBloc>().add(const LoadWalletsEvent());
+  }
+
+  Future<void> _editWalletDialog(Wallet wallet) async {
+    final nameCtrl = TextEditingController(text: wallet.name);
+    final openingBalanceCtrl = TextEditingController(
+      text: wallet.openingBalance > 0 ? wallet.openingBalance.toStringAsFixed(2) : '0.00',
+    );
+    String selectedEmoji = wallet.emoji;
+
+    final updated = await showDialog<Wallet>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AppDialogShell(
+          title: "Edit Wallet",
+          confirmLabel: "Save",
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                LabeledField(
+                  label: "Choose Emoji",
+                  child: EmojiPickerGrid(
+                    emojis: _walletEmojis,
+                    selectedEmoji: selectedEmoji,
+                    onSelected: (e) => setDialogState(() => selectedEmoji = e),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                LabeledField(
+                  label: "Wallet Name",
+                  child: AppTextField(
+                    controller: nameCtrl,
+                    hintText: "e.g. Cash, Bank Account, Savings",
+                  ),
+                ),
+                const SizedBox(height: 16),
+                LabeledField(
+                  label: "Opening Balance",
+                  child: AppTextField(
+                    controller: openingBalanceCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    hintText: "0.00",
+                    prefixText: "Rs ",
+                  ),
+                ),
+              ],
+            ),
+          ),
+          onConfirm: () {
+            final name = nameCtrl.text.trim();
+            final amt = double.tryParse(openingBalanceCtrl.text.trim()) ?? 0.0;
+            if (name.isNotEmpty) {
+              Navigator.pop(
+                context,
+                wallet.copyWith(
+                  name: name,
+                  emoji: selectedEmoji,
+                  openingBalanceCents: (amt * 100).round(),
+                ),
+              );
+            }
+          },
+        ),
+      ),
+    );
+
+    if (updated != null && mounted) {
+      context.read<WalletBloc>().add(UpdateWalletEvent(updated));
+      context.read<ExpenseBloc>().add(const LoadExpenses());
+      AppSnackBar.show(context, message: "Wallet '${updated.name}' updated");
+    }
   }
 
   Future<void> _addFundsDialog({
@@ -100,7 +179,7 @@ class _ManageWalletsPageState extends State<ManageWalletsPage> {
                   label: "Amount",
                   child: AppTextField(
                     controller: amountCtrl,
-                    keyboardType: TextInputType.number,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
                     autofocus: true,
                     hintText: "0.00",
                     prefixText: "Rs ",
@@ -127,9 +206,7 @@ class _ManageWalletsPageState extends State<ManageWalletsPage> {
               final fund = WalletFund(
                 walletId: selectedWalletId,
                 amountCents: (amt * 100).toInt(),
-                note: noteCtrl.text.trim().isEmpty
-                    ? null
-                    : noteCtrl.text.trim(),
+                note: noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
                 createdAt: DateTime.now().toIso8601String(),
               );
               Navigator.pop(context, fund);
@@ -141,6 +218,7 @@ class _ManageWalletsPageState extends State<ManageWalletsPage> {
 
     if (result != null && mounted) {
       context.read<WalletBloc>().add(AddWalletFundsEvent(result));
+      context.read<ExpenseBloc>().add(const LoadExpenses());
       AppSnackBar.show(
         context,
         message: "Added Rs ${result.amount.toStringAsFixed(0)} to wallet",
@@ -157,9 +235,7 @@ class _ManageWalletsPageState extends State<ManageWalletsPage> {
         actions: [
           BlocBuilder<WalletBloc, WalletState>(
             builder: (context, state) {
-              final wallets = (state is WalletLoaded)
-                  ? state.wallets
-                  : <Wallet>[];
+              final wallets = (state is WalletLoaded) ? state.wallets : <Wallet>[];
               return Padding(
                 padding: const EdgeInsets.only(right: 16),
                 child: PillActionButton(
@@ -239,6 +315,7 @@ class _ManageWalletsPageState extends State<ManageWalletsPage> {
                   final balance = state.getBalance(wallet.id);
                   final totalFunds = state.getTotalFund(wallet.id);
                   final totalSpent = state.getTotalSpent(wallet.id);
+                  final openingBal = wallet.openingBalance;
                   final isNegative = balance < 0;
 
                   return Container(
@@ -289,9 +366,7 @@ class _ManageWalletsPageState extends State<ManageWalletsPage> {
                                           color: AppColors.expense.withValues(
                                             alpha: 0.15,
                                           ),
-                                          borderRadius: BorderRadius.circular(
-                                            4,
-                                          ),
+                                          borderRadius: BorderRadius.circular(4),
                                         ),
                                         child: const Text(
                                           "Negative balance",
@@ -306,15 +381,29 @@ class _ManageWalletsPageState extends State<ManageWalletsPage> {
                                 ),
                               ],
                             ),
-                            Text(
-                              "Rs ${balance.toStringAsFixed(0)}",
-                              style: TextStyle(
-                                color: isNegative
-                                    ? AppColors.expense
-                                    : AppColors.textPrimary,
-                                fontSize: 20,
-                                fontWeight: FontWeight.w800,
-                              ),
+                            Row(
+                              children: [
+                                Text(
+                                  "Rs ${balance.toStringAsFixed(0)}",
+                                  style: TextStyle(
+                                    color: isNegative
+                                        ? AppColors.expense
+                                        : AppColors.textPrimary,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.edit_outlined,
+                                    color: AppColors.textSecondary,
+                                    size: 18,
+                                  ),
+                                  tooltip: "Edit Wallet",
+                                  onPressed: () => _editWalletDialog(wallet),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -325,14 +414,20 @@ class _ManageWalletsPageState extends State<ManageWalletsPage> {
                             vertical: 10,
                           ),
                           decoration: BoxDecoration(
-                            color: AppColors.surfaceLight.withValues(
-                              alpha: 0.6,
-                            ),
+                            color: AppColors.surfaceLight.withValues(alpha: 0.6),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
+                              Text(
+                                "Opening: Rs ${openingBal.toStringAsFixed(0)}",
+                                style: const TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
                               Row(
                                 children: [
                                   const Icon(

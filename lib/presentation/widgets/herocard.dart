@@ -8,7 +8,7 @@ class TodaySpentCard extends StatelessWidget {
   const TodaySpentCard({
     super.key,
     required this.dailySpent,
-    this.dailyBudget = 2000.0,
+    this.dailyBudget = 500.0,
   });
 
   double get remainingBudget =>

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:money_management_app/domain/models/category.dart';
-import 'package:money_management_app/domain/models/income_category.dart';
 import 'package:money_management_app/presentation/blocs/category/category_bloc.dart';
 import 'package:money_management_app/presentation/blocs/category/category_event.dart';
 import 'package:money_management_app/presentation/blocs/category/category_state.dart';
@@ -39,59 +38,53 @@ class ManageCategoriesPage extends StatefulWidget {
 
 class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
   late CategoryTab _currentTab;
-  List<IncomeCategory> _incomeCategories = [];
-  bool _isLoadingIncome = true;
 
   Color get _tabAccent =>
       _currentTab == CategoryTab.expense ? AppColors.primary : AppColors.income;
+
+  static const List<String> _expenseEmojis = [
+    '🍳', '🍔', '🌙', '☕', '🍕', '🚗', '🛍️', '💊',
+    '🎮', '📚', '🏋️', '✈️', '🎬', '💡', '🏠', '🤝',
+    '🍿', '🏷️', '🛒', '⛽', '🚌', '🏥', '💈', '👗',
+  ];
+
+  static const List<String> _incomeEmojis = [
+    '💰', '💵', '💳', '🏦', '💼', '📈', '🎯', '💹',
+    '🏠', '🚀', '💎', '🎁', '⭐', '🌟', '💡', '🤝',
+    '📊', '🏆', '🪙', '💸', '🧧', '🏷️',
+  ];
 
   @override
   void initState() {
     super.initState();
     _currentTab = widget.initialTab;
     context.read<CategoryBloc>().add(const LoadCategoriesEvent());
-    _loadIncomeCategories();
   }
 
-  Future<void> _loadIncomeCategories() async {
-    final list = await IncomeCategory.loadAll();
-    if (mounted) {
-      setState(() {
-        _incomeCategories = list;
-        _isLoadingIncome = false;
-      });
-    }
-  }
+  Future<void> _addOrEditCategoryDialog({Category? categoryToEdit}) async {
+    final isEditing = categoryToEdit != null;
+    final isIncome = isEditing
+        ? categoryToEdit.isIncome
+        : _currentTab == CategoryTab.income;
 
-  Future<void> _addCategoryDialog() async {
-    final nameCtrl = TextEditingController();
-    String selectedEmoji = '🏷️';
-    final emojis = [
-      '🍳',
-      '🍔',
-      '🌙',
-      '☕',
-      '🍕',
-      '🚗',
-      '🛍️',
-      '💊',
-      '🎮',
-      '📚',
-      '🏋️',
-      '✈️',
-      '🎬',
-      '💡',
-      '🏠',
-      '🤝',
-      '🍿',
-      '🏷️',
-    ];
+    final nameCtrl = TextEditingController(text: categoryToEdit?.name ?? '');
+    final defaultAmountCtrl = TextEditingController(
+      text: (categoryToEdit != null && categoryToEdit.defaultAmountCents > 0)
+          ? categoryToEdit.defaultAmount.toStringAsFixed(2)
+          : '',
+    );
+    String selectedEmoji = categoryToEdit?.emoji ?? (isIncome ? '💰' : '🏷️');
+    final emojis = isIncome ? _incomeEmojis : _expenseEmojis;
+    final accent = isIncome ? AppColors.income : AppColors.primary;
 
-    final created = await showDialog<Category>(
+    final result = await showDialog<Category>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AppDialogShell(
-          title: "Add Expense Category",
+          title: isEditing
+              ? "Edit ${isIncome ? 'Income' : 'Expense'} Category"
+              : "Add ${isIncome ? 'Income' : 'Expense'} Category",
+          confirmColor: accent,
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -103,7 +96,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
                     emojis: emojis,
                     selectedEmoji: selectedEmoji,
                     onSelected: (e) => setDialogState(() => selectedEmoji = e),
-                    accentColor: AppColors.primary,
+                    accentColor: accent,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -111,9 +104,22 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
                   label: "Category Name",
                   child: AppTextField(
                     controller: nameCtrl,
-                    autofocus: true,
-                    hintText: "e.g. Gym, Coffee, Groceries",
-                    accentColor: AppColors.primary,
+                    autofocus: !isEditing,
+                    hintText: isIncome
+                        ? "e.g. Salary, Freelance, Dividends"
+                        : "e.g. Gym, Coffee, Groceries",
+                    accentColor: accent,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                LabeledField(
+                  label: "Default Amount (Optional)",
+                  child: AppTextField(
+                    controller: defaultAmountCtrl,
+                    hintText: "0.00",
+                    prefixText: "Rs ",
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    accentColor: accent,
                   ),
                 ),
               ],
@@ -122,115 +128,64 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
           onConfirm: () {
             final name = nameCtrl.text.trim();
             if (name.isNotEmpty) {
-              Navigator.pop(
-                context,
-                Category(
-                  name: name,
-                  emoji: selectedEmoji,
-                  defaultAmountCents: 0,
-                  isSystem: false,
-                ),
-              );
+              final amtVal = double.tryParse(defaultAmountCtrl.text.trim()) ?? 0.0;
+              final defaultCents = (amtVal * 100).round();
+
+              if (isEditing) {
+                Navigator.pop(
+                  context,
+                  categoryToEdit.copyWith(
+                    name: name,
+                    emoji: selectedEmoji,
+                    defaultAmountCents: defaultCents,
+                  ),
+                );
+              } else {
+                Navigator.pop(
+                  context,
+                  Category(
+                    kind: isIncome ? CategoryKind.income : CategoryKind.expense,
+                    name: name,
+                    emoji: selectedEmoji,
+                    defaultAmountCents: defaultCents,
+                  ),
+                );
+              }
             }
           },
         ),
       ),
     );
 
-    if (created != null && mounted) {
-      context.read<CategoryBloc>().add(AddCategoryEvent(created));
-      AppSnackBar.show(
-        context,
-        message: "Expense Category '${created.name}' added",
-      );
-    }
-  }
-
-  Future<void> _addIncomeCategoryDialog() async {
-    final nameCtrl = TextEditingController();
-    String selectedEmoji = '💰';
-    final emojis = [
-      '💰',
-      '💵',
-      '💳',
-      '🏦',
-      '💼',
-      '📈',
-      '🎯',
-      '💹',
-      '🏠',
-      '🚀',
-      '💎',
-      '🎁',
-      '⭐',
-      '🌟',
-      '💡',
-      '🤝',
-      '📊',
-      '🏆',
-    ];
-
-    final created = await showDialog<IncomeCategory?>(
-      context: context,
-      builder: (dialogCtx) => StatefulBuilder(
-        builder: (context, setDialogState) => AppDialogShell(
-          title: "Add Income Category",
-          confirmColor: AppColors.income,
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                LabeledField(
-                  label: "Choose Emoji",
-                  child: EmojiPickerGrid(
-                    emojis: emojis,
-                    selectedEmoji: selectedEmoji,
-                    onSelected: (e) => setDialogState(() => selectedEmoji = e),
-                    accentColor: AppColors.income,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                LabeledField(
-                  label: "Category Name",
-                  child: AppTextField(
-                    controller: nameCtrl,
-                    autofocus: true,
-                    hintText: "e.g. Freelance, Part-time, Bonus",
-                    accentColor: AppColors.income,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          onConfirm: () {
-            final name = nameCtrl.text.trim();
-            if (name.isNotEmpty) {
-              final newCat = IncomeCategory(
-                id: 'custom_${DateTime.now().millisecondsSinceEpoch}',
-                name: name,
-                emoji: selectedEmoji,
-              );
-              Navigator.pop(dialogCtx, newCat);
-            }
-          },
-        ),
-      ),
-    );
-
-    if (created != null) {
-      await IncomeCategory.saveCustom(created);
-      await _loadIncomeCategories();
-      if (mounted) {
+    if (result != null && mounted) {
+      if (isEditing) {
+        context.read<CategoryBloc>().add(UpdateCategoryEvent(result));
+        context.read<ExpenseBloc>().add(const LoadExpenses());
+        context.read<ReminderBloc>().add(const LoadRemindersEvent());
         AppSnackBar.show(
           context,
-          message: "Added ${created.emoji} ${created.name} income category",
+          message: "Category '${result.name}' updated",
+        );
+      } else {
+        context.read<CategoryBloc>().add(AddCategoryEvent(result));
+        AppSnackBar.show(
+          context,
+          message: "${isIncome ? 'Income' : 'Expense'} Category '${result.name}' added",
         );
       }
     }
   }
 
   Future<void> _deleteCategoryDialog(Category cat) async {
+    if (cat.id == null) return;
+    final catId = cat.id!;
+
+    final impact = await context.read<CategoryBloc>().getDeleteImpact(catId);
+    if (!mounted) return;
+
+    final infoMessage =
+        "${impact.transactionCount} transaction(s) will keep this category name.\n${impact.reminderCount} linked reminder(s) will be removed.";
+
     final confirmed = await ConfirmActionDialog.show(
       context,
       title: "Delete '${cat.name}'?",
@@ -246,19 +201,19 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: AppColors.expense.withValues(alpha: 0.3)),
         ),
-        child: const Row(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
+            const Icon(
               Icons.info_outline_rounded,
               color: AppColors.expense,
               size: 18,
             ),
-            SizedBox(width: 8),
+            const SizedBox(width: 8),
             Expanded(
               child: Text(
-                "Any existing transactions under this category will automatically be reassigned to 'Other'.",
-                style: TextStyle(
+                infoMessage,
+                style: const TextStyle(
                   color: AppColors.textSecondary,
                   fontSize: 12,
                   height: 1.3,
@@ -270,8 +225,8 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
       ),
     );
 
-    if (confirmed && mounted && cat.id != null) {
-      context.read<CategoryBloc>().add(DeleteCategoryEvent(cat.id!));
+    if (confirmed && mounted) {
+      context.read<CategoryBloc>().add(DeleteCategoryEvent(catId));
       context.read<ExpenseBloc>().add(const LoadExpenses());
       context.read<ReminderBloc>().add(const LoadRemindersEvent());
       final now = DateTime.now();
@@ -281,31 +236,14 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
 
       AppSnackBar.show(
         context,
-        message: "Deleted '${cat.name}' (expenses reassigned to 'Other')",
+        message: "Deleted '${cat.name}'",
+        actionLabel: "Undo",
+        onAction: () {
+          context.read<CategoryBloc>().add(RestoreCategoryEvent(catId));
+          context.read<ExpenseBloc>().add(const LoadExpenses());
+          context.read<ReminderBloc>().add(const LoadRemindersEvent());
+        },
       );
-    }
-  }
-
-  Future<void> _deleteIncomeCategoryDialog(IncomeCategory cat) async {
-    final confirmed = await ConfirmActionDialog.show(
-      context,
-      title: "Delete '${cat.name}'?",
-      titleIcon: Icons.warning_amber_rounded,
-      titleIconColor: AppColors.expense,
-      message: "Are you sure you want to delete ${cat.emoji} ${cat.name}?",
-      confirmLabel: "Delete Category",
-      confirmColor: AppColors.expense,
-    );
-
-    if (confirmed == true && mounted) {
-      await IncomeCategory.deleteCategory(cat.id);
-      await _loadIncomeCategories();
-      if (mounted) {
-        AppSnackBar.show(
-          context,
-          message: "Deleted '${cat.name}' income category",
-        );
-      }
     }
   }
 
@@ -319,14 +257,10 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: PillActionButton(
-              label: _currentTab == CategoryTab.expense
-                  ? "Add Expense"
-                  : "Add Income",
+              label: _currentTab == CategoryTab.expense ? "Add Expense" : "Add Income",
               icon: Icons.add_rounded,
               color: _tabAccent,
-              onPressed: _currentTab == CategoryTab.expense
-                  ? _addCategoryDialog
-                  : _addIncomeCategoryDialog,
+              onPressed: () => _addOrEditCategoryDialog(),
             ),
           ),
         ],
@@ -339,7 +273,10 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
         },
         builder: (context, state) {
           final expenseCategories = (state is CategoryLoaded)
-              ? state.categories
+              ? state.expenseCategories
+              : <Category>[];
+          final incomeCategories = (state is CategoryLoaded)
+              ? state.incomeCategories
               : <Category>[];
 
           return Column(
@@ -367,7 +304,7 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
                       ),
                       _buildTabButton(
                         label: "Income",
-                        count: _incomeCategories.length,
+                        count: incomeCategories.length,
                         tab: CategoryTab.income,
                         activeColor: AppColors.income,
                       ),
@@ -378,9 +315,13 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
 
               // Tab Body
               Expanded(
-                child: _currentTab == CategoryTab.expense
-                    ? _buildExpenseCategoriesList(state, expenseCategories)
-                    : _buildIncomeCategoriesList(),
+                child: state is CategoryLoading
+                    ? AppLoadingIndicator(color: _tabAccent)
+                    : _buildCategoriesList(
+                        _currentTab == CategoryTab.expense
+                            ? expenseCategories
+                            : incomeCategories,
+                      ),
               ),
             ],
           );
@@ -455,34 +396,57 @@ class _ManageCategoriesPageState extends State<ManageCategoriesPage> {
     );
   }
 
-  Widget _buildExpenseCategoriesList(
-    CategoryState state,
-    List<Category> categories,
-  ) {
-    if (state is CategoryLoading) {
-      return const AppLoadingIndicator(color: AppColors.primary);
+  Widget _buildCategoriesList(List<Category> categories) {
+    if (categories.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.surfaceBorder),
+              ),
+              child: Icon(
+                Icons.category_outlined,
+                color: AppColors.textMuted,
+                size: 36,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              "No ${_currentTab == CategoryTab.expense ? 'Expense' : 'Income'} Categories",
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              "Tap 'Add ${_currentTab == CategoryTab.expense ? 'Expense' : 'Income'}' to create one",
+              style: const TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      );
     }
 
     return CategoryListView<Category>(
       categories: categories,
       emoji: (cat) => cat.emoji,
       name: (cat) => cat.name,
+      subtitle: (cat) => cat.defaultAmountCents > 0
+          ? "Default: Rs ${cat.defaultAmount.toStringAsFixed(0)}"
+          : null,
+      onEdit: (cat) => _addOrEditCategoryDialog(categoryToEdit: cat),
       onDelete: _deleteCategoryDialog,
       deleteTooltip: "Delete Category",
-    );
-  }
-
-  Widget _buildIncomeCategoriesList() {
-    if (_isLoadingIncome) {
-      return const AppLoadingIndicator(color: AppColors.income);
-    }
-
-    return CategoryListView<IncomeCategory>(
-      categories: _incomeCategories,
-      emoji: (cat) => cat.emoji,
-      name: (cat) => cat.name,
-      onDelete: _deleteIncomeCategoryDialog,
-      deleteTooltip: "Delete Income Category",
     );
   }
 }
