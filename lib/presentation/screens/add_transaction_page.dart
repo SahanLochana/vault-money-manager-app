@@ -47,7 +47,6 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
   late TimeOfDay _selectedTime;
 
   Category? _selectedCategory;
-  bool _categoryExplicitlyCleared = false;
   Wallet? _selectedWallet;
 
   // For Transfer Mode
@@ -361,13 +360,31 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
           allCategories = state.categories;
           wallets = state.wallets;
 
+          final expectedKind = _mode == TransactionMode.income ? CategoryKind.income : CategoryKind.expense;
+          final modeCategories = allCategories.where((c) => c.kind == expectedKind).toList();
+
           final currentTx = widget.transactionToEdit;
-          if (isEditMode && _selectedCategory == null && !_categoryExplicitlyCleared) {
+          if (isEditMode && _selectedCategory == null) {
             if (currentTx?.categoryId != null) {
               _selectedCategory = state.getCategory(currentTx!.categoryId!);
             }
-          } else if (_selectedCategory == null && widget.initialCategoryId != null && !_categoryExplicitlyCleared) {
+          } else if (_selectedCategory == null && widget.initialCategoryId != null) {
             _selectedCategory = state.getCategory(widget.initialCategoryId!);
+            if (_selectedCategory != null &&
+                _selectedCategory!.defaultAmountCents > 0 &&
+                _amountController.text.isEmpty) {
+              _amountController.text = _selectedCategory!.defaultAmount.toStringAsFixed(0);
+            }
+          }
+
+          // Auto-select first category if none selected, or when switching modes
+          if (_selectedCategory == null && modeCategories.isNotEmpty && !isEditMode) {
+            _selectedCategory = modeCategories.first;
+            if (_selectedCategory!.defaultAmountCents > 0 && _amountController.text.isEmpty) {
+              _amountController.text = _selectedCategory!.defaultAmount.toStringAsFixed(0);
+            }
+          } else if (_selectedCategory != null && _selectedCategory!.kind != expectedKind) {
+            _selectedCategory = modeCategories.firstOrNull;
             if (_selectedCategory != null &&
                 _selectedCategory!.defaultAmountCents > 0 &&
                 _amountController.text.isEmpty) {
@@ -491,7 +508,6 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
           setState(() {
             _mode = mode;
             _selectedCategory = null;
-            _categoryExplicitlyCleared = false;
           });
         },
         child: AnimatedContainer(
@@ -581,8 +597,6 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
   }
 
   Widget _buildCategorySection(List<Category> categories, {required CategoryTab tab}) {
-    final isNoneSelected = _selectedCategory == null;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -617,104 +631,275 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
           ],
         ),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            // Always allow "Uncategorized" (NULL category_id)
-            GestureDetector(
+        _buildCategoryGrid(categories),
+      ],
+    );
+  }
+
+  Widget _buildCategoryGrid(List<Category> categories) {
+    if (categories.isEmpty) {
+      return Row(
+        children: [
+          Expanded(
+            child: GestureDetector(
               onTap: () {
-                setState(() {
-                  _selectedCategory = null;
-                  _categoryExplicitlyCleared = true;
-                });
+                setState(() => _selectedCategory = null);
               },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
+              child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
-                  color: isNoneSelected
-                      ? _accentColor.withValues(alpha: 0.18)
-                      : AppColors.surface,
-                  borderRadius: BorderRadius.circular(16),
+                  color: _accentColor.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(14),
                   border: Border.all(
-                    color: isNoneSelected
-                        ? _accentColor.withValues(alpha: 0.6)
-                        : AppColors.surfaceBorder,
-                    width: isNoneSelected ? 1.5 : 1,
+                    color: _accentColor.withValues(alpha: 0.6),
+                    width: 1.5,
                   ),
                 ),
                 child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text("❓", style: TextStyle(fontSize: 16)),
-                    const SizedBox(width: 8),
+                    const Text("❓", style: TextStyle(fontSize: 15)),
+                    const SizedBox(width: 6),
                     Text(
                       "Uncategorized",
                       style: TextStyle(
-                        color: isNoneSelected ? _accentColor : AppColors.textPrimary,
-                        fontSize: 13,
-                        fontWeight: isNoneSelected ? FontWeight.w700 : FontWeight.w500,
+                        color: _accentColor,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
                 ),
               ),
             ),
+          ),
+        ],
+      );
+    }
 
-            ...categories.map((cat) {
-              final isSelected = _selectedCategory?.id == cat.id;
-              final catColor = CategoryUIHelper.getColor(cat);
-              return GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _selectedCategory = cat;
-                    _categoryExplicitlyCleared = false;
-                    // Product rule: Category default amount prefills the amount input (user can overwrite)
-                    if (cat.defaultAmountCents > 0) {
-                      _amountController.text = cat.defaultAmount.toStringAsFixed(0);
-                    }
-                  });
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? catColor.withValues(alpha: 0.18)
-                        : AppColors.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: isSelected
-                          ? catColor.withValues(alpha: 0.6)
-                          : AppColors.surfaceBorder,
-                      width: isSelected ? 1.5 : 1,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        cat.emoji,
-                        style: const TextStyle(fontSize: 16),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        cat.name,
-                        style: TextStyle(
-                          color: isSelected ? catColor : AppColors.textPrimary,
-                          fontSize: 13,
-                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
+    // When more than 5 categories: exactly 2 rows of 3 chips (5 direct + 1 dropdown for the rest)
+    if (categories.length > 5) {
+      final row1 = categories.take(3).map(_buildCategoryChip).toList();
+      final row2 = [
+        _buildCategoryChip(categories[3]),
+        _buildCategoryChip(categories[4]),
+        _buildMoreCategoriesDropdown(categories.skip(5).toList()),
+      ];
+      return Column(
+        children: [
+          _buildCategoryRow(row1),
+          const SizedBox(height: 8),
+          _buildCategoryRow(row2),
+        ],
+      );
+    }
+
+    // 5 categories: 2 rows (3 in Row 1, 2 in Row 2) with no dropdown chip
+    if (categories.length == 5) {
+      final row1 = categories.take(3).map(_buildCategoryChip).toList();
+      final row2 = categories.skip(3).map(_buildCategoryChip).toList();
+      return Column(
+        children: [
+          _buildCategoryRow(row1),
+          const SizedBox(height: 8),
+          _buildCategoryRow(row2),
+        ],
+      );
+    }
+
+    // 4 categories: 2 rows of 2 chips
+    if (categories.length == 4) {
+      final row1 = categories.take(2).map(_buildCategoryChip).toList();
+      final row2 = categories.skip(2).map(_buildCategoryChip).toList();
+      return Column(
+        children: [
+          _buildCategoryRow(row1),
+          const SizedBox(height: 8),
+          _buildCategoryRow(row2),
+        ],
+      );
+    }
+
+    // 1 to 3 categories: single row
+    return _buildCategoryRow(categories.map(_buildCategoryChip).toList());
+  }
+
+  Widget _buildCategoryRow(List<Widget> children) {
+    return Row(
+      children: [
+        for (int i = 0; i < children.length; i++) ...[
+          if (i > 0) const SizedBox(width: 8),
+          Expanded(child: children[i]),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildCategoryChip(Category cat) {
+    final isSelected = _selectedCategory?.id == cat.id;
+    final catColor = CategoryUIHelper.getColor(cat);
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedCategory = cat;
+          if (cat.defaultAmountCents > 0) {
+            _amountController.text = cat.defaultAmount.toStringAsFixed(0);
+          }
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? catColor.withValues(alpha: 0.18) : AppColors.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isSelected ? catColor.withValues(alpha: 0.6) : AppColors.surfaceBorder,
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              cat.emoji,
+              style: const TextStyle(fontSize: 15),
+            ),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                cat.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: isSelected ? catColor : AppColors.textPrimary,
+                  fontSize: 12,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                 ),
-              );
-            }),
+              ),
+            ),
           ],
         ),
-      ],
+      ),
+    );
+  }
+
+  Widget _buildMoreCategoriesDropdown(List<Category> remainingCategories) {
+    final isSelectedFromRemaining = remainingCategories.any((c) => c.id == _selectedCategory?.id);
+    final activeCat = isSelectedFromRemaining ? _selectedCategory : null;
+    final activeColor = activeCat != null
+        ? CategoryUIHelper.getColor(activeCat)
+        : AppColors.textSecondary;
+
+    return Theme(
+      data: Theme.of(context).copyWith(
+        popupMenuTheme: PopupMenuThemeData(
+          color: AppColors.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(
+              color: AppColors.surfaceBorder.withValues(alpha: 0.8),
+              width: 1,
+            ),
+          ),
+        ),
+      ),
+      child: PopupMenuButton<Category>(
+        tooltip: "More Categories",
+        offset: const Offset(0, 48),
+        elevation: 8,
+        onSelected: (Category cat) {
+          setState(() {
+            _selectedCategory = cat;
+            if (cat.defaultAmountCents > 0) {
+              _amountController.text = cat.defaultAmount.toStringAsFixed(0);
+            }
+          });
+        },
+        itemBuilder: (context) => remainingCategories.map((cat) {
+          final isSelected = _selectedCategory?.id == cat.id;
+          final catColor = CategoryUIHelper.getColor(cat);
+          return PopupMenuItem<Category>(
+            value: cat,
+            child: Row(
+              children: [
+                Text(cat.emoji, style: const TextStyle(fontSize: 16)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    cat.name,
+                    style: TextStyle(
+                      color: isSelected ? catColor : AppColors.textPrimary,
+                      fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                if (isSelected)
+                  Icon(Icons.check_rounded, size: 16, color: catColor),
+              ],
+            ),
+          );
+        }).toList(),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelectedFromRemaining
+                ? activeColor.withValues(alpha: 0.18)
+                : AppColors.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isSelectedFromRemaining
+                  ? activeColor.withValues(alpha: 0.6)
+                  : AppColors.surfaceBorder,
+              width: isSelectedFromRemaining ? 1.5 : 1,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (activeCat != null) ...[
+                Text(activeCat.emoji, style: const TextStyle(fontSize: 15)),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    activeCat.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: activeColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ] else ...[
+                const Icon(Icons.more_horiz_rounded, size: 15, color: AppColors.textSecondary),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    "More (${remainingCategories.length})",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(width: 2),
+              Icon(
+                Icons.arrow_drop_down_rounded,
+                size: 16,
+                color: isSelectedFromRemaining ? activeColor : AppColors.textMuted,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

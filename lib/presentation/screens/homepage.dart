@@ -47,7 +47,8 @@ class Homepage extends StatelessWidget {
     } else if (tx is IncomeTransaction) {
       actionMsg = "Deleted income (${tx.formattedAmount})";
     } else {
-      actionMsg = "Deleted expense (${tx.formattedAmount}) • Restored to wallet";
+      actionMsg =
+          "Deleted expense (${tx.formattedAmount}) • Restored to wallet";
     }
 
     AppSnackBar.show(
@@ -61,7 +62,12 @@ class Homepage extends StatelessWidget {
     );
   }
 
-  Future<bool> _confirmDeleteDialog(BuildContext context, LedgerTransaction tx, Wallet? wallet, Wallet? toWallet) async {
+  Future<bool> _confirmDeleteDialog(
+    BuildContext context,
+    LedgerTransaction tx,
+    Wallet? wallet,
+    Wallet? toWallet,
+  ) async {
     if (tx is TransferTransaction) {
       final fromName = wallet?.name ?? "source wallet";
       final toName = toWallet?.name ?? "destination wallet";
@@ -160,11 +166,15 @@ class Homepage extends StatelessWidget {
               ),
               onPressed: () {
                 final expenseBloc = context.read<ExpenseBloc>();
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (context) => const SettingsPage()),
-                ).then((_) {
-                  expenseBloc.add(const LoadExpenses());
-                });
+                Navigator.of(context)
+                    .push(
+                      MaterialPageRoute(
+                        builder: (context) => const SettingsPage(),
+                      ),
+                    )
+                    .then((_) {
+                      expenseBloc.add(const LoadExpenses());
+                    });
               },
             ),
           ),
@@ -233,7 +243,9 @@ class Homepage extends StatelessWidget {
                               return Expanded(
                                 child: Container(
                                   margin: EdgeInsets.only(
-                                    right: wallet == walletState.wallets.last ? 0 : 10,
+                                    right: wallet == walletState.wallets.last
+                                        ? 0
+                                        : 10,
                                   ),
                                   child: Material(
                                     color: Colors.transparent,
@@ -242,7 +254,8 @@ class Homepage extends StatelessWidget {
                                         Navigator.push(
                                           context,
                                           MaterialPageRoute(
-                                            builder: (context) => const ManageWalletsPage(),
+                                            builder: (context) =>
+                                                const ManageWalletsPage(),
                                           ),
                                         );
                                       },
@@ -254,33 +267,44 @@ class Homepage extends StatelessWidget {
                                         ),
                                         decoration: BoxDecoration(
                                           color: AppColors.surface,
-                                          borderRadius: BorderRadius.circular(16),
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
                                           border: Border.all(
                                             color: isNegative
-                                                ? AppColors.expense.withValues(alpha: 0.4)
-                                                : AppColors.surfaceBorder.withValues(alpha: 0.7),
+                                                ? AppColors.expense.withValues(
+                                                    alpha: 0.4,
+                                                  )
+                                                : AppColors.surfaceBorder
+                                                      .withValues(alpha: 0.7),
                                           ),
                                         ),
                                         child: Row(
                                           children: [
                                             Text(
                                               wallet.emoji,
-                                              style: const TextStyle(fontSize: 16),
+                                              style: const TextStyle(
+                                                fontSize: 16,
+                                              ),
                                             ),
                                             const SizedBox(width: 8),
                                             Expanded(
                                               child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
                                                   Text(
                                                     wallet.name,
                                                     style: const TextStyle(
-                                                      color: AppColors.textSecondary,
+                                                      color: AppColors
+                                                          .textSecondary,
                                                       fontSize: 11,
-                                                      fontWeight: FontWeight.w600,
+                                                      fontWeight:
+                                                          FontWeight.w600,
                                                     ),
-                                                    overflow: TextOverflow.ellipsis,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
                                                   ),
                                                   const SizedBox(height: 1),
                                                   Text(
@@ -288,11 +312,14 @@ class Homepage extends StatelessWidget {
                                                     style: TextStyle(
                                                       color: isNegative
                                                           ? AppColors.expense
-                                                          : AppColors.textPrimary,
+                                                          : AppColors
+                                                                .textPrimary,
                                                       fontSize: 13,
-                                                      fontWeight: FontWeight.w700,
+                                                      fontWeight:
+                                                          FontWeight.w700,
                                                     ),
-                                                    overflow: TextOverflow.ellipsis,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
                                                   ),
                                                 ],
                                               ),
@@ -317,9 +344,7 @@ class Homepage extends StatelessWidget {
                 const SliverToBoxAdapter(
                   child: Padding(
                     padding: EdgeInsets.fromLTRB(20, 16, 20, 6),
-                    child: SectionHeader(
-                      title: "Today's Transactions",
-                    ),
+                    child: SectionHeader(title: "Today's Transactions"),
                   ),
                 ),
 
@@ -337,7 +362,9 @@ class Homepage extends StatelessWidget {
                               decoration: BoxDecoration(
                                 color: AppColors.surface,
                                 shape: BoxShape.circle,
-                                border: Border.all(color: AppColors.surfaceBorder),
+                                border: Border.all(
+                                  color: AppColors.surfaceBorder,
+                                ),
                               ),
                               child: const Icon(
                                 Icons.receipt_long_outlined,
@@ -357,6 +384,7 @@ class Homepage extends StatelessWidget {
                             const SizedBox(height: 4),
                             const Text(
                               "Tap the + button to add an expense, income or transfer",
+                              textAlign: TextAlign.center,
                               style: TextStyle(
                                 color: AppColors.textMuted,
                                 fontSize: 12,
@@ -371,93 +399,97 @@ class Homepage extends StatelessWidget {
                   SliverPadding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     sliver: SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) {
-                          final tx = todayTransactions[index];
-                          Category? category;
-                          Wallet? wallet;
-                          Wallet? toWallet;
+                      delegate: SliverChildBuilderDelegate((context, index) {
+                        final tx = todayTransactions[index];
+                        Category? category;
+                        Wallet? wallet;
+                        Wallet? toWallet;
 
-                          if (state is ExpenseLoaded) {
-                            if (tx.categoryId != null) {
-                              category = state.getCategory(tx.categoryId!);
-                            }
-                            wallet = state.getWallet(tx.walletId);
-                            final targetWalletId = tx.toWalletId;
-                            if (targetWalletId != null) {
-                              toWallet = state.getWallet(targetWalletId);
-                            }
+                        if (state is ExpenseLoaded) {
+                          if (tx.categoryId != null) {
+                            category = state.getCategory(tx.categoryId!);
                           }
+                          wallet = state.getWallet(tx.walletId);
+                          final targetWalletId = tx.toWalletId;
+                          if (targetWalletId != null) {
+                            toWallet = state.getWallet(targetWalletId);
+                          }
+                        }
 
-                          final isTransfer = tx is TransferTransaction;
-                          final deleteLabel = isTransfer ? "Revert" : "Delete";
+                        final isTransfer = tx is TransferTransaction;
+                        final deleteLabel = isTransfer ? "Revert" : "Delete";
 
-                          return Dismissible(
-                            key: Key('tx_${tx.id}'),
-                            direction: DismissDirection.endToStart,
-                            background: Container(
-                              margin: const EdgeInsets.only(bottom: 10),
-                              padding: const EdgeInsets.only(right: 20),
-                              alignment: Alignment.centerRight,
-                              decoration: BoxDecoration(
-                                color: AppColors.expense.withValues(alpha: 0.9),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    deleteLabel,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  const Icon(
-                                    Icons.delete_outline_rounded,
+                        return Dismissible(
+                          key: Key('tx_${tx.id}'),
+                          direction: DismissDirection.endToStart,
+                          background: Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            padding: const EdgeInsets.only(right: 20),
+                            alignment: Alignment.centerRight,
+                            decoration: BoxDecoration(
+                              color: AppColors.expense.withValues(alpha: 0.9),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                Text(
+                                  deleteLabel,
+                                  style: const TextStyle(
                                     color: Colors.white,
-                                    size: 22,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
                                   ),
-                                ],
-                              ),
+                                ),
+                                const SizedBox(width: 8),
+                                const Icon(
+                                  Icons.delete_outline_rounded,
+                                  color: Colors.white,
+                                  size: 22,
+                                ),
+                              ],
                             ),
-                            confirmDismiss: (direction) =>
-                                _confirmDeleteDialog(context, tx, wallet, toWallet),
-                            onDismissed: (direction) => _deleteTransaction(context, tx),
-                            child: TransactionCard(
-                              transaction: tx,
-                              category: category,
-                              wallet: wallet,
-                              onTap: () {
-                                TransactionDetailsSheet.show(
-                                  context,
-                                  transaction: tx,
-                                  category: category,
-                                  wallet: wallet,
-                                  onDelete: () async {
-                                    final confirmed =
-                                        await _confirmDeleteDialog(context, tx, wallet, toWallet);
-                                    if (confirmed && context.mounted) {
-                                      _deleteTransaction(context, tx);
-                                    }
-                                  },
-                                  onEdit: () => _editTransaction(context, tx),
-                                );
-                              },
-                            ),
-                          );
-                        },
-                        childCount: todayTransactions.length,
-                      ),
+                          ),
+                          confirmDismiss: (direction) => _confirmDeleteDialog(
+                            context,
+                            tx,
+                            wallet,
+                            toWallet,
+                          ),
+                          onDismissed: (direction) =>
+                              _deleteTransaction(context, tx),
+                          child: TransactionCard(
+                            transaction: tx,
+                            category: category,
+                            wallet: wallet,
+                            onTap: () {
+                              TransactionDetailsSheet.show(
+                                context,
+                                transaction: tx,
+                                category: category,
+                                wallet: wallet,
+                                onDelete: () async {
+                                  final confirmed = await _confirmDeleteDialog(
+                                    context,
+                                    tx,
+                                    wallet,
+                                    toWallet,
+                                  );
+                                  if (confirmed && context.mounted) {
+                                    _deleteTransaction(context, tx);
+                                  }
+                                },
+                                onEdit: () => _editTransaction(context, tx),
+                              );
+                            },
+                          ),
+                        );
+                      }, childCount: todayTransactions.length),
                     ),
                   ),
 
                 // Bottom Spacing for Navigation Bar & FAB
-                const SliverToBoxAdapter(
-                  child: SizedBox(height: 100),
-                ),
+                const SliverToBoxAdapter(child: SizedBox(height: 100)),
               ],
             ),
           );

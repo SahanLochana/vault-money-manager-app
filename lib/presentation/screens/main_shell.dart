@@ -52,9 +52,11 @@ class _MainShellState extends State<MainShell> {
           index: _currentIndex,
           children: _pages,
         ),
-      floatingActionButton: FloatingActionBtn(
-        onPressed: _openAddTransaction,
-      ),
+        floatingActionButton: _currentIndex == 0
+            ? FloatingActionBtn(
+                onPressed: _openAddTransaction,
+              )
+            : null,
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: AppColors.surface,
