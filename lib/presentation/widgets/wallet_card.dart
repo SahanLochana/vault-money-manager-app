@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:money_management_app/domain/models/wallet.dart';
 import 'package:money_management_app/domain/utils/currency_formatter.dart';
@@ -9,6 +10,8 @@ class WalletCard extends StatelessWidget {
   final double balance;
   final double totalFunds;
   final double totalSpent;
+  final bool isBalanceHidden;
+  final VoidCallback? onToggleVisibility;
   final VoidCallback onEdit;
   final VoidCallback onAddFunds;
   final VoidCallback onRemove;
@@ -19,6 +22,8 @@ class WalletCard extends StatelessWidget {
     required this.balance,
     required this.totalFunds,
     required this.totalSpent,
+    this.isBalanceHidden = false,
+    this.onToggleVisibility,
     required this.onEdit,
     required this.onAddFunds,
     required this.onRemove,
@@ -160,18 +165,35 @@ class WalletCard extends StatelessWidget {
 
           const SizedBox(height: 12),
 
-          // Prominent Balance Display
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              CurrencyFormatter.formatRs(balance),
-              style: TextStyle(
-                color: isNegative ? AppColors.expense : AppColors.textPrimary,
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.3,
-              ),
+          // Prominent Balance Display (tap to toggle visibility)
+          GestureDetector(
+            onTap: onToggleVisibility,
+            behavior: HitTestBehavior.opaque,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: isBalanceHidden
+                  ? ImageFiltered(
+                      imageFilter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+                      child: Text(
+                        CurrencyFormatter.formatRs(balance),
+                        style: TextStyle(
+                          color: isNegative ? AppColors.expense : AppColors.textPrimary,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                    )
+                  : Text(
+                      CurrencyFormatter.formatRs(balance),
+                      style: TextStyle(
+                        color: isNegative ? AppColors.expense : AppColors.textPrimary,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
             ),
           ),
 
@@ -191,6 +213,7 @@ class WalletCard extends StatelessWidget {
                     label: "Opening",
                     value: CurrencyFormatter.formatRs(openingBal),
                     valueColor: AppColors.textSecondary,
+                    isBlurred: isBalanceHidden,
                   ),
                 ),
                 Container(
@@ -204,6 +227,7 @@ class WalletCard extends StatelessWidget {
                     value: CurrencyFormatter.formatRs(totalFunds),
                     valueColor: AppColors.primary,
                     icon: Icons.arrow_downward_rounded,
+                    isBlurred: isBalanceHidden,
                   ),
                 ),
                 Container(
@@ -217,6 +241,7 @@ class WalletCard extends StatelessWidget {
                     value: CurrencyFormatter.formatRs(totalSpent),
                     valueColor: AppColors.expense,
                     icon: Icons.arrow_upward_rounded,
+                    isBlurred: isBalanceHidden,
                   ),
                 ),
               ],
@@ -233,12 +258,14 @@ class _StatCell extends StatelessWidget {
   final String value;
   final Color valueColor;
   final IconData? icon;
+  final bool isBlurred;
 
   const _StatCell({
     required this.label,
     required this.value,
     required this.valueColor,
     this.icon,
+    this.isBlurred = false,
   });
 
   @override
@@ -270,14 +297,26 @@ class _StatCell extends StatelessWidget {
                   Icon(icon, size: 11, color: valueColor),
                   const SizedBox(width: 2),
                 ],
-                Text(
-                  value,
-                  style: TextStyle(
-                    color: valueColor,
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
+                isBlurred
+                    ? ImageFiltered(
+                        imageFilter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                        child: Text(
+                          value,
+                          style: TextStyle(
+                            color: valueColor,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      )
+                    : Text(
+                        value,
+                        style: TextStyle(
+                          color: valueColor,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
               ],
             ),
           ),

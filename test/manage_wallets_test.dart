@@ -15,6 +15,7 @@ import 'package:money_management_app/presentation/blocs/wallet/wallet_bloc.dart'
 import 'package:money_management_app/presentation/blocs/wallet/wallet_event.dart';
 import 'package:money_management_app/presentation/blocs/wallet/wallet_state.dart';
 import 'package:money_management_app/presentation/screens/manage_wallets_page.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
 // -------------------------------------------------------------
@@ -543,6 +544,87 @@ void main() {
         tester.view.resetPhysicalSize();
         tester.view.resetDevicePixelRatio();
       });
+    });
+
+    testWidgets('Persists hide/show balance state across app reopens', (tester) async {
+      SharedPreferences.setMockInitialValues({'hide_wallet_balance': false});
+
+      final fakeRepo = FakeWalletRepository(wallets: [
+        const Wallet(id: 1, name: "Main Wallet", emoji: "💵", openingBalanceCents: 50000),
+      ]);
+      final walletBloc = WalletBloc(walletRepository: fakeRepo);
+      walletBloc.add(const LoadWalletsEvent());
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MultiRepositoryProvider(
+            providers: [
+              RepositoryProvider<WalletRepository>.value(value: fakeRepo),
+            ],
+            child: MultiBlocProvider(
+              providers: [
+                BlocProvider<WalletBloc>.value(value: walletBloc),
+                BlocProvider<ExpenseBloc>(
+                  create: (_) => ExpenseBloc(
+                    transactionRepository: _MockTxRepo(),
+                    categoryRepository: _MockCatRepo(),
+                    walletRepository: fakeRepo,
+                  ),
+                ),
+              ],
+              child: const ManageWalletsPage(),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Initially balance is not hidden
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('hide_wallet_balance'), isFalse);
+
+      // Tap the eye icon toggle in TotalBalanceCard
+      final eyeIconFinder = find.byIcon(Icons.visibility_rounded);
+      expect(eyeIconFinder, findsOneWidget);
+      await tester.tap(eyeIconFinder);
+      await tester.pumpAndSettle();
+
+      // Now hidden icon should be shown and preference should be true
+      expect(find.byIcon(Icons.visibility_off_rounded), findsOneWidget);
+      expect(prefs.getBool('hide_wallet_balance'), isTrue);
+
+      // Reopening / mounting a fresh ManageWalletsPage should restore hidden = true
+      final newWalletBloc = WalletBloc(walletRepository: fakeRepo);
+      newWalletBloc.add(const LoadWalletsEvent());
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MultiRepositoryProvider(
+            providers: [
+              RepositoryProvider<WalletRepository>.value(value: fakeRepo),
+            ],
+            child: MultiBlocProvider(
+              providers: [
+                BlocProvider<WalletBloc>.value(value: newWalletBloc),
+                BlocProvider<ExpenseBloc>(
+                  create: (_) => ExpenseBloc(
+                    transactionRepository: _MockTxRepo(),
+                    categoryRepository: _MockCatRepo(),
+                    walletRepository: fakeRepo,
+                  ),
+                ),
+              ],
+              child: const ManageWalletsPage(),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Verified: state was remembered and restored as hidden (visibility_off)
+      expect(find.byIcon(Icons.visibility_off_rounded), findsOneWidget);
     });
   });
 }

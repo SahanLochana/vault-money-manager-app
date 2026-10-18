@@ -17,6 +17,7 @@ import 'package:money_management_app/presentation/widgets/remove_wallet_dialog.d
 import 'package:money_management_app/presentation/widgets/total_balance_card.dart';
 import 'package:money_management_app/presentation/widgets/wallet_card.dart';
 import 'package:money_management_app/presentation/widgets/wallet_form_dialog.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ManageWalletsPage extends StatefulWidget {
   const ManageWalletsPage({super.key});
@@ -26,10 +27,41 @@ class ManageWalletsPage extends StatefulWidget {
 }
 
 class _ManageWalletsPageState extends State<ManageWalletsPage> {
+  static const String _keyHideBalance = 'hide_wallet_balance';
+  bool _isBalanceHidden = false;
+
   @override
   void initState() {
     super.initState();
+    _loadBalanceVisibility();
     context.read<WalletBloc>().add(const LoadWalletsEvent());
+  }
+
+  Future<void> _loadBalanceVisibility() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getBool(_keyHideBalance);
+      if (saved != null && mounted) {
+        setState(() {
+          _isBalanceHidden = saved;
+        });
+      }
+    } catch (_) {
+      // Gracefully continue with default if preferences unavailable
+    }
+  }
+
+  Future<void> _toggleBalanceVisibility() async {
+    final next = !_isBalanceHidden;
+    setState(() {
+      _isBalanceHidden = next;
+    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_keyHideBalance, next);
+    } catch (_) {
+      // Gracefully ignore storage write failures
+    }
   }
 
   Future<void> _openAddWalletDialog(List<Wallet> wallets) async {
@@ -348,6 +380,8 @@ class _ManageWalletsPageState extends State<ManageWalletsPage> {
                         totalBalance: state.grandTotalBalance,
                         wallets: state.wallets,
                         balances: state.balances,
+                        isBalanceHidden: _isBalanceHidden,
+                        onToggleVisibility: _toggleBalanceVisibility,
                       ),
                       ...state.wallets.map((wallet) {
                         final balance = state.getBalance(wallet.id);
@@ -360,6 +394,8 @@ class _ManageWalletsPageState extends State<ManageWalletsPage> {
                           balance: balance,
                           totalFunds: totalFunds,
                           totalSpent: totalSpent,
+                          isBalanceHidden: _isBalanceHidden,
+                          onToggleVisibility: _toggleBalanceVisibility,
                           onEdit: () => _openEditWalletDialog(wallet, state.wallets),
                           onAddFunds: () => _openAddFundsDialog(
                             state.wallets,
