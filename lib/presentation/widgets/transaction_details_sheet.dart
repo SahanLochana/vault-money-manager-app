@@ -49,10 +49,10 @@ class TransactionDetailsSheet extends StatelessWidget {
     final catColor = CategoryUIHelper.getColorForId(transaction.categoryId);
     final categoryName = category?.name ??
         transaction.categoryName ??
-        (transaction.categoryId == null ? 'Uncategorized' : (isIncome ? 'Income' : 'Expense'));
+        (isIncome ? 'Add Fund' : (transaction.categoryId == null ? 'Uncategorized' : 'Expense'));
     final categoryEmoji = category?.emoji ??
         transaction.categoryEmoji ??
-        (transaction.categoryId == null ? '❓' : (isIncome ? '💰' : '🏷️'));
+        (isIncome ? '💰' : (transaction.categoryId == null ? '❓' : '🏷️'));
     final walletName = wallet?.name ?? transaction.walletName ?? 'Wallet';
 
     return Container(

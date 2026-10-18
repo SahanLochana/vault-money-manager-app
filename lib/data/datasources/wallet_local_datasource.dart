@@ -101,6 +101,14 @@ class WalletLocalDatasource {
     return await db.insert(AppTables.wallets, wallet.toMap());
   }
 
+  Future<int> getNextSortOrder() async {
+    final db = await _db;
+    final maxOrder = Sqflite.firstIntValue(await db.rawQuery(
+      'SELECT MAX(${AppTables.colWalletSortOrder}) FROM ${AppTables.wallets}',
+    )) ?? 0;
+    return maxOrder + 1;
+  }
+
   Future<int> updateWallet(Wallet wallet) async {
     final db = await _db;
     return await db.update(
@@ -121,20 +129,126 @@ class WalletLocalDatasource {
     );
   }
 
+  Future<int> restoreWallet(int id) async {
+    final db = await _db;
+    return await db.update(
+      AppTables.wallets,
+      {AppTables.colWalletIsArchived: 0},
+      where: '${AppTables.colWalletId} = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<bool> hasHistory(int walletId) async {
+    final db = await _db;
+    final count = Sqflite.firstIntValue(await db.rawQuery('''
+      SELECT COUNT(*) FROM ${AppTables.transactions}
+      WHERE (${AppTables.colTxWalletId} = ? OR ${AppTables.colTxToWalletId} = ?)
+    ''', [walletId, walletId])) ?? 0;
+    return count > 0;
+  }
+
+  Future<int> deleteWalletPermanently(int walletId) async {
+    final db = await _db;
+    return await db.delete(
+      AppTables.wallets,
+      where: '${AppTables.colWalletId} = ?',
+      whereArgs: [walletId],
+    );
+  }
+
+  /// Transfers balance to another wallet and archives the source wallet atomically in one transaction.
+  Future<void> transferBalanceAndArchive({
+    required int fromWalletId,
+    required int toWalletId,
+    required int balanceCents,
+    String? note,
+  }) async {
+    final db = await _db;
+    await db.transaction((txn) async {
+      final now = DateTime.now();
+      final dateStr = now.toIso8601String().substring(0, 10);
+      final timeStr =
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      final nowIso = now.toIso8601String();
+
+      final sourceWalletId = balanceCents > 0 ? fromWalletId : toWalletId;
+      final destWalletId = balanceCents > 0 ? toWalletId : fromWalletId;
+      final amount = balanceCents.abs();
+
+      if (amount > 0) {
+        await txn.insert(AppTables.transactions, {
+          AppTables.colTxType: 'transfer',
+          AppTables.colTxAmountCents: amount,
+          AppTables.colTxWalletId: sourceWalletId,
+          AppTables.colTxToWalletId: destWalletId,
+          AppTables.colTxCategoryId: null,
+          AppTables.colTxOccurredDate: dateStr,
+          AppTables.colTxOccurredTime: timeStr,
+          AppTables.colTxNote: note ?? 'Balance transfer prior to wallet removal',
+          AppTables.colTxDeletedAt: null,
+          AppTables.colTxCreatedAt: nowIso,
+          AppTables.colTxUpdatedAt: nowIso,
+        });
+      }
+
+      await txn.update(
+        AppTables.wallets,
+        {AppTables.colWalletIsArchived: 1},
+        where: '${AppTables.colWalletId} = ?',
+        whereArgs: [fromWalletId],
+      );
+    });
+  }
+
   // --- Compatibility methods mapping to unified transactions table ---
+
+  Future<int> _getOrCreateAddFundCategory(Database db) async {
+    final existing = await db.query(
+      AppTables.categories,
+      where: 'LOWER(${AppTables.colCatName}) = ? AND ${AppTables.colCatKind} = ?',
+      whereArgs: ['add fund', 'income'],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) {
+      return existing.first[AppTables.colCatId] as int;
+    }
+
+    final alt = await db.query(
+      AppTables.categories,
+      where: 'LOWER(${AppTables.colCatName}) = ? AND ${AppTables.colCatKind} = ?',
+      whereArgs: ['add funds', 'income'],
+      limit: 1,
+    );
+    if (alt.isNotEmpty) {
+      return alt.first[AppTables.colCatId] as int;
+    }
+
+    final now = DateTime.now().toIso8601String();
+    return await db.insert(AppTables.categories, {
+      AppTables.colCatKind: 'income',
+      AppTables.colCatName: 'Add Fund',
+      AppTables.colCatEmoji: '💰',
+      AppTables.colCatDefaultAmountCents: 0,
+      AppTables.colCatSortOrder: 0,
+      AppTables.colCatDeletedAt: null,
+      AppTables.colCatCreatedAt: now,
+    });
+  }
 
   Future<int> insertWalletFund(Map<String, dynamic> fundMap) async {
     final db = await _db;
     final now = DateTime.now();
     final dateStr = now.toIso8601String().substring(0, 10);
     final timeStr = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    final categoryId = await _getOrCreateAddFundCategory(db);
 
     return await db.insert(AppTables.transactions, {
       AppTables.colTxType: 'income',
       AppTables.colTxAmountCents: fundMap[AppTables.colFundAmountCents],
       AppTables.colTxWalletId: fundMap[AppTables.colFundWalletId],
       AppTables.colTxToWalletId: null,
-      AppTables.colTxCategoryId: null,
+      AppTables.colTxCategoryId: categoryId,
       AppTables.colTxOccurredDate: dateStr,
       AppTables.colTxOccurredTime: timeStr,
       AppTables.colTxNote: fundMap[AppTables.colFundNote],

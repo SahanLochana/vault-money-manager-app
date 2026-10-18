@@ -40,8 +40,30 @@ class RestoreWalletTransferEvent extends WalletEvent {
   const RestoreWalletTransferEvent(this.transferId);
 }
 
+class AddWalletEvent extends WalletEvent {
+  final Wallet wallet;
+  const AddWalletEvent(this.wallet);
+}
+
 class UpdateWalletEvent extends WalletEvent {
   final Wallet wallet;
   const UpdateWalletEvent(this.wallet);
+}
+
+class RemoveWalletEvent extends WalletEvent {
+  final int walletId;
+  final int? transferToWalletId;
+  final String? note;
+
+  const RemoveWalletEvent({
+    required this.walletId,
+    this.transferToWalletId,
+    this.note,
+  });
+}
+
+class RestoreWalletEvent extends WalletEvent {
+  final int walletId;
+  const RestoreWalletEvent(this.walletId);
 }
 

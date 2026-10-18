@@ -1,4 +1,5 @@
 import 'package:money_management_app/data/datasources/wallet_local_datasource.dart';
+import 'package:money_management_app/domain/failures/wallet_failure.dart';
 import 'package:money_management_app/domain/models/wallet.dart';
 import 'package:money_management_app/domain/models/wallet_fund.dart';
 import 'package:money_management_app/domain/models/wallet_transfer.dart';
@@ -21,12 +22,73 @@ class WalletRepositoryImpl implements WalletRepository {
 
   @override
   Future<int> addWallet(Wallet wallet) async {
-    return await localDatasource.insertWallet(wallet);
+    final activeWallets = await localDatasource.getAllWallets(includeArchived: false);
+    if (activeWallets.length >= 10) {
+      throw const WalletLimitReachedFailure();
+    }
+
+    final trimmedName = wallet.name.trim();
+    final nameLower = trimmedName.toLowerCase();
+    final nameExists = activeWallets.any((w) => w.name.trim().toLowerCase() == nameLower);
+    if (nameExists) {
+      throw const WalletNameTakenFailure();
+    }
+
+    final nextOrder = await localDatasource.getNextSortOrder();
+    final walletToInsert = wallet.copyWith(
+      name: trimmedName,
+      sortOrder: wallet.sortOrder != 0 ? wallet.sortOrder : nextOrder,
+    );
+    return await localDatasource.insertWallet(walletToInsert);
   }
 
   @override
   Future<void> updateWallet(Wallet wallet) async {
-    await localDatasource.updateWallet(wallet);
+    final trimmedName = wallet.name.trim();
+    final nameLower = trimmedName.toLowerCase();
+    final activeWallets = await localDatasource.getAllWallets(includeArchived: false);
+    final nameExists = activeWallets.any(
+      (w) => w.id != wallet.id && w.name.trim().toLowerCase() == nameLower,
+    );
+    if (nameExists) {
+      throw const WalletNameTakenFailure();
+    }
+    await localDatasource.updateWallet(wallet.copyWith(name: trimmedName));
+  }
+
+  @override
+  Future<bool> hasHistory(int walletId) async {
+    return await localDatasource.hasHistory(walletId);
+  }
+
+  @override
+  Future<void> deleteWalletPermanently(int walletId) async {
+    await localDatasource.deleteWalletPermanently(walletId);
+  }
+
+  @override
+  Future<void> archiveWallet(int walletId) async {
+    await localDatasource.archiveWallet(walletId);
+  }
+
+  @override
+  Future<void> restoreWallet(int walletId) async {
+    await localDatasource.restoreWallet(walletId);
+  }
+
+  @override
+  Future<void> transferBalanceAndArchive({
+    required int fromWalletId,
+    required int toWalletId,
+    required int balanceCents,
+    String? note,
+  }) async {
+    await localDatasource.transferBalanceAndArchive(
+      fromWalletId: fromWalletId,
+      toWalletId: toWalletId,
+      balanceCents: balanceCents,
+      note: note,
+    );
   }
 
   @override

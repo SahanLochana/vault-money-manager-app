@@ -41,6 +41,9 @@ class ExpenseLoaded extends ExpenseState {
     this.hasLedgerChanged = false,
   });
 
+  // Active wallets for transaction entry / transfer pickers
+  List<Wallet> get activeWallets => wallets.where((w) => !w.isArchived).toList();
+
   // Backwards-compatible convenience getters:
   List<ExpenseTransaction> get todayExpenses =>
       todayTransactions.whereType<ExpenseTransaction>().toList();

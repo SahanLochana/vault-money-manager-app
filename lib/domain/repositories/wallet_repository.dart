@@ -13,6 +13,17 @@ abstract class WalletRepository {
   Future<void> deleteFund(int id);
   Future<void> restoreFund(int id);
 
+  Future<bool> hasHistory(int walletId);
+  Future<void> deleteWalletPermanently(int walletId);
+  Future<void> archiveWallet(int walletId);
+  Future<void> restoreWallet(int walletId);
+  Future<void> transferBalanceAndArchive({
+    required int fromWalletId,
+    required int toWalletId,
+    required int balanceCents,
+    String? note,
+  });
+
   // Transfers
   Future<int> addTransfer(WalletTransfer transfer);
   Future<void> softDeleteTransfer(int id);

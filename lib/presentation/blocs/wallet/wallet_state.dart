@@ -18,11 +18,18 @@ class WalletLoaded extends WalletState {
   final Map<int, double> totalFunds;
   final Map<int, double> totalSpent;
 
+  final String? actionError;
+  final String? successMessage;
+  final int? lastArchivedWalletId;
+
   const WalletLoaded({
     required this.wallets,
     required this.balances,
     required this.totalFunds,
     required this.totalSpent,
+    this.actionError,
+    this.successMessage,
+    this.lastArchivedWalletId,
   });
 
   double getBalance(int walletId) => balances[walletId] ?? 0.0;
@@ -35,6 +42,27 @@ class WalletLoaded extends WalletState {
       sum += b;
     }
     return sum;
+  }
+
+  WalletLoaded copyWith({
+    List<Wallet>? wallets,
+    Map<int, double>? balances,
+    Map<int, double>? totalFunds,
+    Map<int, double>? totalSpent,
+    String? actionError,
+    String? successMessage,
+    int? lastArchivedWalletId,
+    bool clearActionMessages = false,
+  }) {
+    return WalletLoaded(
+      wallets: wallets ?? this.wallets,
+      balances: balances ?? this.balances,
+      totalFunds: totalFunds ?? this.totalFunds,
+      totalSpent: totalSpent ?? this.totalSpent,
+      actionError: clearActionMessages ? null : (actionError ?? this.actionError),
+      successMessage: clearActionMessages ? null : (successMessage ?? this.successMessage),
+      lastArchivedWalletId: clearActionMessages ? null : (lastArchivedWalletId ?? this.lastArchivedWalletId),
+    );
   }
 }
 

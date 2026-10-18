@@ -35,7 +35,8 @@ class StatsBloc extends Bloc<StatsEvent, StatsState> {
           transactionRepository.getMonthlyStats(event.year, event.month);
       final categoriesFuture =
           categoryRepository.getAllCategoriesIncludingDeleted();
-      final walletsFuture = walletRepository.getAllWallets();
+      final walletsFuture =
+          walletRepository.getAllWallets(includeArchived: true);
       final monthExpensesFuture = transactionRepository.getTransactionsForMonth(
         event.year,
         event.month,

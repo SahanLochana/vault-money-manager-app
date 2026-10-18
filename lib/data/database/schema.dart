@@ -115,10 +115,11 @@ class DatabaseSchema {
 
     // 2. Seed Starter Income Categories
     final incomeCategories = [
-      {'kind': 'income', 'name': 'From Home', 'emoji': '🏠', 'default_amount_cents': 0, 'sort_order': 0, 'created_at': now},
-      {'kind': 'income', 'name': 'Mahapola', 'emoji': '🎓', 'default_amount_cents': 0, 'sort_order': 1, 'created_at': now},
-      {'kind': 'income', 'name': 'Bursary', 'emoji': '🏛️', 'default_amount_cents': 0, 'sort_order': 2, 'created_at': now},
-      {'kind': 'income', 'name': 'Other', 'emoji': '🍿', 'default_amount_cents': 0, 'sort_order': 3, 'created_at': now},
+      {'kind': 'income', 'name': 'Add Fund', 'emoji': '💰', 'default_amount_cents': 0, 'sort_order': 0, 'created_at': now},
+      {'kind': 'income', 'name': 'From Home', 'emoji': '🏠', 'default_amount_cents': 0, 'sort_order': 1, 'created_at': now},
+      {'kind': 'income', 'name': 'Mahapola', 'emoji': '🎓', 'default_amount_cents': 0, 'sort_order': 2, 'created_at': now},
+      {'kind': 'income', 'name': 'Bursary', 'emoji': '🏛️', 'default_amount_cents': 0, 'sort_order': 3, 'created_at': now},
+      {'kind': 'income', 'name': 'Other', 'emoji': '🍿', 'default_amount_cents': 0, 'sort_order': 4, 'created_at': now},
     ];
 
     for (final cat in incomeCategories) {

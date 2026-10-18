@@ -358,7 +358,7 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
 
         if (state is ExpenseLoaded) {
           allCategories = state.categories;
-          wallets = state.wallets;
+          wallets = state.activeWallets;
 
           final expectedKind = _mode == TransactionMode.income ? CategoryKind.income : CategoryKind.expense;
           final modeCategories = allCategories.where((c) => c.kind == expectedKind).toList();

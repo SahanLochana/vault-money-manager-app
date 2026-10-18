@@ -50,7 +50,7 @@ class ExpenseBloc extends Bloc<ExpenseEvent, ExpenseState> {
       final todayFuture = transactionRepository.getTodayTransactions();
       final historyFuture = transactionRepository.getPaginatedTransactions(limit: _pageSize);
       final categoriesFuture = categoryRepository.getAllCategoriesIncludingDeleted();
-      final walletsFuture = walletRepository.getAllWallets();
+      final walletsFuture = walletRepository.getAllWallets(includeArchived: true);
       final budgetFuture = settingsRepository?.getDailyBudget() ?? Future.value(500.0);
 
       final results = await Future.wait([

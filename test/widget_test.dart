@@ -125,6 +125,21 @@ class FakeWalletRepository implements WalletRepository {
   Future<Map<int, double>> getTransferInTotals() async => {};
   @override
   Future<Map<int, double>> getTransferOutTotals() async => {};
+  @override
+  Future<bool> hasHistory(int walletId) async => false;
+  @override
+  Future<void> archiveWallet(int walletId) async {}
+  @override
+  Future<void> deleteWalletPermanently(int walletId) async {}
+  @override
+  Future<void> restoreWallet(int walletId) async {}
+  @override
+  Future<void> transferBalanceAndArchive({
+    required int fromWalletId,
+    required int toWalletId,
+    required int balanceCents,
+    String? note,
+  }) async {}
 }
 
 class FakeReminderRepository implements ReminderRepository {
