@@ -51,3 +51,7 @@ key.properties
 *.keystore
 **/*.jks
 **/*.keystore
+
+# AI / Agents & Skills
+.agents/
+skills-lock.json
