@@ -647,5 +647,31 @@ void main() {
       );
       expect(slotWithCustom.effectiveAmountCents(categoryDefaultCents), 9500);
     });
+
+    test('8. Inserting wallets with id: 0 assigns unique autoincremented IDs without collision', () async {
+      // Form dialog creates wallets with id: 0
+      final id1 = await walletDatasource.insertWallet(const Wallet(
+        id: 0,
+        name: 'First New Wallet',
+        emoji: '💵',
+        openingBalanceCents: 1000,
+      ));
+      final id2 = await walletDatasource.insertWallet(const Wallet(
+        id: 0,
+        name: 'Second New Wallet',
+        emoji: '💳',
+        openingBalanceCents: 2000,
+      ));
+
+      expect(id1, isPositive);
+      expect(id2, isPositive);
+      expect(id1, isNot(equals(id2)));
+
+      final all = await walletDatasource.getAllWallets();
+      final w1 = all.firstWhere((w) => w.id == id1);
+      final w2 = all.firstWhere((w) => w.id == id2);
+      expect(w1.name, 'First New Wallet');
+      expect(w2.name, 'Second New Wallet');
+    });
   });
 }

@@ -58,7 +58,7 @@ class Wallet {
 
   Map<String, dynamic> toMap() {
     return {
-      AppTables.colWalletId: id,
+      if (id > 0) AppTables.colWalletId: id,
       AppTables.colWalletName: name,
       AppTables.colWalletEmoji: emoji,
       AppTables.colWalletOpeningBalanceCents: openingBalanceCents,

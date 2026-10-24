@@ -98,7 +98,11 @@ class WalletLocalDatasource {
 
   Future<int> insertWallet(Wallet wallet) async {
     final db = await _db;
-    return await db.insert(AppTables.wallets, wallet.toMap());
+    final map = wallet.toMap();
+    if (wallet.id <= 0) {
+      map.remove(AppTables.colWalletId);
+    }
+    return await db.insert(AppTables.wallets, map);
   }
 
   Future<int> getNextSortOrder() async {

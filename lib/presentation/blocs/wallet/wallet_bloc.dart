@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:money_management_app/domain/failures/wallet_failure.dart';
 import 'package:money_management_app/domain/repositories/expense_repository.dart';
@@ -99,7 +100,8 @@ class WalletBloc extends Bloc<WalletEvent, WalletState> {
       await _reloadWallets(emit, successMessage: "Wallet '$name' created.");
     } on WalletFailure catch (f) {
       _emitError(emit, f.message);
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint("WalletBloc._onAddWallet error: $e\n$st");
       _emitError(emit, "Failed to create wallet. Please try again.");
     }
   }
@@ -118,7 +120,8 @@ class WalletBloc extends Bloc<WalletEvent, WalletState> {
       await _reloadWallets(emit, successMessage: "Wallet '$name' updated.");
     } on WalletFailure catch (f) {
       _emitError(emit, f.message);
-    } catch (_) {
+    } catch (e, st) {
+      debugPrint("WalletBloc._onUpdateWallet error: $e\n$st");
       _emitError(emit, "Failed to update wallet. Please try again.");
     }
   }
